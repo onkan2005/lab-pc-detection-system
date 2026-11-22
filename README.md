@@ -14,6 +14,7 @@ Final project for ICE 415 – Digital Image Processing.
 - [Quick start with Docker (recommended)](#quick-start-with-docker-recommended)
 - [Run without Docker (Python)](#run-without-docker-python)
 - [Enroll students](#enroll-students)
+- [Reset the data (keep the photos)](#reset-the-data-keep-the-photos)
 - [Using the app](#using-the-app)
 - [Cameras (webcam, phone, two cameras)](#cameras)
 - [Configuration](#configuration)
@@ -152,6 +153,32 @@ student and the threshold line.
 
 ---
 
+## Reset the data (keep the photos)
+
+Wipes PCs and assignments, watchlist, incidents and snapshots, usage/alert logs and the old face
+embeddings, **keeps every photo in `enrollment/`**, and re-enrolls everyone. It asks for confirmation
+and refuses to run while the app is running (the app would write the old data back).
+
+With Docker:
+```bash
+docker compose down
+docker compose run --rm pc-usage-monitor python reset.py
+docker compose up -d
+```
+
+Without Docker (from the `detector` folder, app stopped):
+```bash
+python reset.py
+```
+
+Options: `--keep-pcs` keeps PCs, assignments and the watchlist (clears only incidents, logs and
+enrollment) · `--yes` skips the confirmation · `--no-enroll` doesn't re-enroll afterwards.
+
+To clear **only the incident feed**, delete `detector/data/incidents.json` and `detector/data/snapshots/`
+while the app is stopped.
+
+---
+
 ## Using the app
 
 | Page | What you do there |
@@ -253,6 +280,7 @@ scored lowest because they also amplify sensor noise. Re-run it after everyone i
     ├── drawing.py                   labels and drawing
     ├── incidents.py                 incident feed with snapshots
     ├── enroll.py                    builds the face embeddings
+    ├── reset.py                     wipes app data, keeps photos, re-enrolls
     ├── evaluate_lighting.py         low-light experiment
     ├── monitor.py, find_camera.py   command-line version and camera finder
     ├── config.py                    all settings
