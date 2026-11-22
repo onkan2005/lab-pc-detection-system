@@ -14,32 +14,39 @@ COLORS = {"ok": "#1f9d55", "checking": "#f08c00", "alert": "#e03131", "bystander
 
 def describe(pc, result, tracker, t):
     """For each person: what to show. Returns the people with "label", "color", "kind" and rule status added."""
+    # People are shown by who they ARE, not by a running number: an enrolled student by name, anyone
+    # else as "Unknown person". Only when several unrecognized people are in view at the same time
+    # are they numbered, by their position in the current frame (left to right), starting at 1.
+    unnamed = sorted((p for p in result["people"] if p["name"] in (UNIDENTIFIED, "unknown")),
+                     key=lambda p: p["box"][0])
+    slot = {id(p): i + 1 for i, p in enumerate(unnamed)} if len(unnamed) > 1 else {}
     out = []
     for p in result["people"]:
-        name, tag = p["name"], f"#{p['id']}" if p["id"] is not None else "#?"
-        who = "Unknown person" if name == "unknown" else name
+        name = p["name"]
+        n = f" {slot[id(p)]}" if id(p) in slot else ""
+        who = f"Unknown person{n}" if name in ("unknown", UNIDENTIFIED) else name
         if p.get("reid") and name not in (UNIDENTIFIED, "unknown"):
             who += f" (by {p.get('clothes', '')} clothes)"   # face hidden: kept by appearance re-ID
         st = tracker.status(pc, name, t) if name != UNIDENTIFIED else \
             {"state": "unidentified", "seconds": 0, "limit": None, "alert": False}
         if name == UNIDENTIFIED:
-            label, kind = f"{tag} person - looking for face", "bystander"
+            label, kind = f"Person{n} - looking for face", "bystander"
         elif not p["user"] and name not in tracker.watchlist:
-            label, kind = f"{tag} {who} (bystander)", "bystander"
+            label, kind = f"{who} (bystander)", "bystander"
         elif st["state"] == "ok":
-            label, kind = f"{tag} {who} - assigned to {pc}", "ok"
+            label, kind = f"{who} - assigned to {pc}", "ok"
         elif st["state"] == "watchlist":
-            label, kind = f"{tag} WATCHLIST: {who}", "alert"
+            label, kind = f"WATCHLIST: {who}", "alert"
         else:
             if st["state"] == "wrong_seat":
                 problem = f"assigned to {', '.join(tracker.assigned_elsewhere(name))}, not {pc}"
             else:
                 problem = f"not assigned to {pc}"
             if st["alert"]:
-                label, kind = f"{tag} ALERT: {who} - {problem}", "alert"
+                label, kind = f"ALERT: {who} - {problem}", "alert"
             else:
-                label, kind = f"{tag} {who} - {problem} ({st['seconds']}s/{st['limit']}s)", "checking"
-        out.append({**p, **st, "label": label, "color": COLORS[kind], "kind": kind})
+                label, kind = f"{who} - {problem} ({st['seconds']}s/{st['limit']}s)", "checking"
+        out.append({**p, **st, "label": label, "color": COLORS[kind], "kind": kind, "display": who})
     return out
 
 

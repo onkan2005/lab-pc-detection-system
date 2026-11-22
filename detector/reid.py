@@ -135,7 +135,7 @@ class Gallery:
     def __init__(self):
         self.people = {}     # pid -> {"pid", "name", "score", "at", "sig", "seen", "reid"}
         self.tracks = {}     # YOLO track id -> pid
-        self.next_pid = 1
+
 
     def person_for(self, track_id, sig, now, taken):
         """The person this YOLO track belongs to: the same as before, a re-identified recent person
@@ -165,14 +165,22 @@ class Gallery:
         return self.new_person(track_id, sig, now)
 
     def new_person(self, track_id, sig, now, name=None, score=0.0):
-        p = {"pid": self.next_pid, "name": name, "score": score, "at": 0.0 if name is None else now,
+        pid = 1
+        while pid in self.people:    # reuse the lowest free number, so numbers don't keep growing
+            pid += 1
+        p = {"pid": pid, "name": name, "score": score, "at": 0.0 if name is None else now,
              "sig": sig, "seen": now, "reid": False}
-        self.people[p["pid"]] = p
-        self.next_pid += 1
+        self.people[pid] = p
         if track_id is not None:
-            self.tracks[track_id] = p["pid"]
+            self.tracks[track_id] = pid
         return p
 
     def forget_old(self, now):
-        self.people = {k: v for k, v in self.people.items() if now - v["seen"] <= config.REID_WINDOW_SEC}
+        """Named people are remembered for REID_WINDOW_SEC. People never identified (unknown / face never
+        seen) only for UNNAMED_FORGET_SEC: when the camera is moved or covered their appearance changes
+        anyway, and keeping them would only pile up "new" people."""
+        def keep(p):
+            limit = config.REID_WINDOW_SEC if p["name"] not in (None, "unknown") else config.UNNAMED_FORGET_SEC
+            return now - p["seen"] <= limit
+        self.people = {k: v for k, v in self.people.items() if keep(v)}
         self.tracks = {t: pid for t, pid in self.tracks.items() if pid in self.people}

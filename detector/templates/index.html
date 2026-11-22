@@ -784,8 +784,8 @@ class Station {
         (d.prep.steps.length ? ` → corrected to ${a.brightness} / ${a.contrast}<br>${esc(d.prep.steps.join("; "))}` : " (no correction needed)");
     }
     this.q(".user").textContent = !user ? "nobody"
-      : user.name === "unidentified" ? `Person #${user.id} (face not visible yet)`
-      : `#${user.id} ${user.name === "unknown" ? "Unknown person" : user.name} (match ${user.score.toFixed(2)})`;
+      : user.name === "unidentified" ? "Someone (face not visible yet)"
+      : `${user.display} (match ${user.score.toFixed(2)})`;
     let v = "Nobody at this PC", color = "var(--muted)", barHtml = "";
     if (d.covered) { v = "Camera blocked"; color = "var(--bad)"; }
     else if (user && user.name === "unidentified") { v = "Someone is here, looking for their face"; color = "var(--muted)"; }

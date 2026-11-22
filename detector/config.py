@@ -38,6 +38,7 @@ RECOGNIZE_EVERY = 1.0
 # was blocked, turned away), match clothing colors + body dimensions with people seen recently,
 # so the same person keeps their number and name instead of being counted as someone new.
 REID_WINDOW_SEC = 300              # remember people's appearance this long (clothes don't change mid-session)
+UNNAMED_FORGET_SEC = 30            # people never identified (unknown) are forgotten sooner
 # Thresholds measured on the enrolled photos of 2 people (re-check after the whole group is enrolled):
 #   clothes + body: same person 0.44..0.84 (median 0.68), different people <= 0.42
 #   clothes only:   same person 0.18..0.84 (median 0.53), different people <= 0.16
