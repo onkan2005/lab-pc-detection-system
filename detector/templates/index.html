@@ -47,7 +47,8 @@
   /* ---------- shell: icon rail + content ---------- */
   .app { display: grid; grid-template-columns: 76px minmax(0, 1fr); min-height: 100vh; }
   .rail { background: var(--rail); border-right: 1px solid var(--border); display: flex; flex-direction: column;
-          align-items: center; gap: 6px; padding: 16px 0; position: sticky; top: 0; height: 100vh; }
+          align-items: center; gap: 6px; padding: 16px 0; position: sticky; top: 0; height: 100vh;
+          z-index: 50; }   /* above the page content, so the rail's tooltips are not hidden behind tiles */
   .logo { width: 40px; height: 40px; border-radius: 12px; background: var(--accent); color: var(--on-accent);
           display: grid; place-items: center; margin-bottom: 18px; }
   .nav { display: flex; flex-direction: column; gap: 6px; }
