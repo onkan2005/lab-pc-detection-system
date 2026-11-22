@@ -114,7 +114,7 @@ def enhance(frame, method=None):
     """Measures the frame (Lesson 1) and enhances it only when it is dark or flat.
     Returns (image for detection, report).
 
-    - dark or low contrast -> config.ENHANCE_METHOD (min-max normalization by default, see config.py)
+    - dark or low contrast -> config.ENHANCE_METHOD (brightness/contrast g = a*f + b by default, see config.py)
     - over-exposed / glare -> flagged with the digital negative (Lesson 2): a blinded camera's
       negative is almost black, i.e. mean((L-1) - r) is close to 0
     """
