@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC Usage Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>try{const t=localStorage.getItem("theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="light"}</script>
+<style>
+  /* Look: clean security-camera app (user's reference) — neutral surfaces, image-first camera tiles,
+     slim icon rail, event feed. Light and dark themes; status colors only for status. */
+  :root, [data-theme="light"] {
+    --bg: #F4F4F5; --card: #FFFFFF; --raised: #FFFFFF; --text: #09090B; --muted: #71717A; --faint: #A1A1AA;
+    --border: #E4E4E7; --track: #F4F4F5; --hover: #F4F4F5;
+    --accent: #09090B; --on-accent: #FFFFFF; --accent-bg: #F4F4F5; --link: #2563EB;
+    --ok: #16A34A; --warn: #D97706; --bad: #DC2626;
+    --ok-bg: #DCFCE7; --warn-bg: #FEF3C7; --bad-bg: #FEE2E2;
+    --rail: #FFFFFF; --rail-icon: #52525B; --rail-active: #09090B; --rail-active-icon: #FFFFFF;
+    --shot: #18181B; --ring: #2563EB; --shadow: 0 1px 2px rgba(0,0,0,.04), 0 1px 3px rgba(0,0,0,.06);
+    --radius: 16px; --font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+    color-scheme: light;
+  }
+  [data-theme="dark"] {
+    --bg: #09090B; --card: #131316; --raised: #18181B; --text: #FAFAFA; --muted: #A1A1AA; --faint: #71717A;
+    --border: #27272A; --track: #1F1F23; --hover: #1F1F23;
+    --accent: #FAFAFA; --on-accent: #09090B; --accent-bg: #1F1F23; --link: #60A5FA;
+    --ok: #4ADE80; --warn: #FBBF24; --bad: #F87171;
+    --ok-bg: #052E16; --warn-bg: #3B2A06; --bad-bg: #3B0D0D;
+    --rail: #09090B; --rail-icon: #A1A1AA; --rail-active: #FAFAFA; --rail-active-icon: #09090B;
+    --shot: #000000; --ring: #60A5FA; --shadow: none;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 var(--font);
+         -webkit-font-smoothing: antialiased; }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-radius: 8px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  svg.icon { width: 20px; height: 20px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8;
+             stroke-linecap: round; stroke-linejoin: round; }
+  a { color: var(--link); }
+  code { font-family: var(--mono); background: var(--track); padding: 1px 6px; border-radius: 6px; font-size: 13px; }
+
+  /* ---------- shell: icon rail + content ---------- */
+  .app { display: grid; grid-template-columns: 76px minmax(0, 1fr); min-height: 100vh; }
+  .rail { background: var(--rail); border-right: 1px solid var(--border); display: flex; flex-direction: column;
+          align-items: center; gap: 6px; padding: 16px 0; position: sticky; top: 0; height: 100vh; }
+  .logo { width: 40px; height: 40px; border-radius: 12px; background: var(--accent); color: var(--on-accent);
+          display: grid; place-items: center; margin-bottom: 18px; }
+  .nav { display: flex; flex-direction: column; gap: 6px; }
+  .nav a, .rail-btn { position: relative; width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center;
+          color: var(--rail-icon); text-decoration: none; background: none; border: 0; cursor: pointer; transition: background .15s, color .15s; }
+  .nav a:hover, .rail-btn:hover { background: var(--hover); color: var(--text); }
+  .nav a[aria-current="page"] { background: var(--rail-active); color: var(--rail-active-icon); }
+  .nav a .label { display: none; }
+  .nav a::after, .rail-btn::after { content: attr(data-tip); position: absolute; left: 54px; top: 50%; transform: translateY(-50%);
+          background: var(--accent); color: var(--on-accent); font-size: 12px; font-weight: 500; padding: 4px 8px;
+          border-radius: 6px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 40; }
+  .nav a:hover::after, .nav a:focus-visible::after, .rail-btn:hover::after, .rail-btn:focus-visible::after { opacity: 1; }
+  .count { position: absolute; top: 4px; right: 4px; min-width: 16px; height: 16px; border-radius: 8px; padding: 0 4px;
+           background: var(--bad); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+  .rail-foot { margin-top: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin: 8px 0; }
+  .content { min-width: 0; padding: 20px 28px 40px; }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: minmax(0, 1fr); }
+    .rail { position: sticky; top: 0; z-index: 20; height: auto; flex-direction: row; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--border); }
+    .logo { margin: 0 8px 0 0; width: 36px; height: 36px; }
+    .nav { flex-direction: row; } .rail-foot { margin: 0 0 0 auto; flex-direction: row; }
+    .nav a::after, .rail-btn::after { display: none; }
+    .content { padding: 16px; }
+  }
+
+  /* ---------- shared ---------- */
+  .page { display: none; } .page.active { display: block; }
+  .page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; min-height: 44px; }
+  .page-head h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+  .page-head p { margin: 2px 0 0; color: var(--muted); font-size: 14px; max-width: 70ch; }
+  .page-head .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); }
+  .card h2 { font-size: 15px; font-weight: 600; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; letter-spacing: -.01em; }
+  .card h2 .muted { font-weight: 400; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 12px 0; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 2px 9px; border-radius: 999px; font-weight: 500; white-space: nowrap; }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .b-ok { background: var(--ok-bg); color: var(--ok); } .b-warn { background: var(--warn-bg); color: var(--warn); }
+  .b-bad { background: var(--bad-bg); color: var(--bad); } .b-off { background: var(--track); color: var(--muted); }
+  .bar { height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; margin-top: 6px; }
+  .bar > div { height: 100%; border-radius: 2px; transition: width .4s ease-out; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: 0; }
+  .btn, button.primary, button.secondary { font: inherit; font-size: 14px; font-weight: 500; border-radius: 10px; min-height: 38px; padding: 0 14px;
+         cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: background .15s, border-color .15s, opacity .15s; }
+  .btn.primary, button.primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
+  .btn.primary:hover, button.primary:hover { opacity: .88; }
+  .btn.ghost, button.secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); }
+  .btn.ghost:hover, button.secondary:hover { background: var(--hover); }
+  .btn.danger { background: none; color: var(--bad); border: 1px solid transparent; }
+  .btn.danger:hover { background: var(--bad-bg); }
+  button:disabled { opacity: .5; cursor: progress; }
+  select, input[type=text], input[type=search] { font: inherit; font-size: 14px; min-height: 38px; padding: 0 10px; border-radius: 10px;
+         border: 1px solid var(--border); background: var(--card); color: var(--text); }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
+  .msg { font-size: 13px; color: var(--ok); }
+  .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+
+  /* ---------- alert strip (all pages) ---------- */
+  .alarm { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+           background: var(--bad-bg); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
+           font-weight: 600; font-size: 14px; padding: 8px 8px 8px 14px; border-radius: 12px; margin-bottom: 16px; }
+  .alarm::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-right: -4px; }
+  .alarm #alarm-text { flex: 1; }
+  .alarm .btn { min-height: 32px; background: var(--bad); color: #fff; border: 0; }
+  .alarm.calm { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+  .alarm.calm::before { background: var(--warn); } .alarm.calm .btn { background: var(--warn); }
+  @media (prefers-reduced-motion: no-preference) { .alarm.flash::before { animation: pulse 1.2s ease-in-out infinite; } }
+  @keyframes pulse { 50% { opacity: .25; } }
+
+  /* ---------- overview: camera wall + feed ---------- */
+  .ov { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+  @media (max-width: 1200px) { .ov { grid-template-columns: 1fr; } }
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font: inherit; font-size: 13px; font-weight: 500; min-height: 34px; padding: 0 12px; border-radius: 999px; cursor: pointer;
+          border: 1px solid var(--border); background: var(--card); color: var(--text); display: inline-flex; align-items: center; gap: 6px; }
+  .chip:hover { background: var(--hover); }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+  .chip .n { font-family: var(--mono); font-size: 12px; opacity: .7; }
+  .updated { font-size: 13px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+  .updated .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .pcgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .tile { position: relative; border-radius: 14px; overflow: hidden; background: var(--shot); aspect-ratio: 16 / 10;
+          box-shadow: var(--shadow); outline: 2px solid transparent; outline-offset: -2px; transition: outline-color .2s; }
+  .tile.alerting { outline-color: var(--bad); }
+  /* offline PCs are muted so live cameras stand out */
+  .tile.offline { background: var(--card); border: 1px dashed var(--border); box-shadow: none; }
+  .tile.offline .placeholder { color: var(--faint); }
+  .tile.offline .bottom { background: none; color: var(--text); }
+  .tile.offline .sub { color: var(--muted); opacity: 1 !important; }
+  .tile.offline .pill { background: var(--track); color: var(--muted); backdrop-filter: none; }
+  .tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .tile .placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #52525B; }
+  .tile .placeholder svg { width: 36px; height: 36px; }
+  .tile .tl, .tile .tr { position: absolute; top: 10px; display: flex; gap: 6px; }
+  .tile .tl { left: 10px; } .tile .tr { right: 10px; }
+  .pill { font-size: 11px; font-weight: 600; letter-spacing: .02em; padding: 3px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px;
+          background: rgba(9,9,11,.62); color: #fff; backdrop-filter: blur(6px); }
+  .pill .d { width: 6px; height: 6px; border-radius: 50%; background: #A1A1AA; }
+  .pill.live .d { background: #4ADE80; } .pill.alert { background: #DC2626; } .pill.warn { background: #D97706; }
+  .tile .bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 12px 10px; color: #fff;
+          background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,0)); }
+  .tile .name { font-weight: 600; font-size: 15px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .tile .name time { font-family: var(--mono); font-weight: 400; font-size: 12px; opacity: .75; }
+  .tile .sub { font-size: 12px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .bar { background: rgba(255,255,255,.22); }
+  .feed { position: sticky; top: 20px; max-height: calc(100vh - 40px); display: flex; flex-direction: column; padding: 16px 0 8px; }
+  .feed-head { display: flex; justify-content: space-between; align-items: center; padding: 0 16px 10px; }
+  .feed-head h2 { margin: 0; }
+  #incidents { overflow-y: auto; padding: 0 8px; }
+  .incident { display: grid; grid-template-columns: 72px 1fr; gap: 12px; padding: 10px 8px; border-radius: 12px; }
+  .incident + .incident { border-top: 1px solid var(--border); border-radius: 0; }
+  .incident:hover { background: var(--hover); border-radius: 12px; }
+  .incident img { width: 72px; height: 54px; object-fit: cover; border-radius: 8px; background: var(--shot); display: block; }
+  .incident .top { display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+  .incident .type { font-weight: 600; font-size: 13px; }
+  .incident time { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .incident .who { font-size: 13px; color: var(--muted); }
+  .incident.resolved, .incident.false_alarm { opacity: .55; }
+  .incident .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .incident .actions button { min-height: 30px; font-size: 12px; padding: 0 10px; border-radius: 8px; }
+
+  /* ---------- cameras ---------- */
+  .controls { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 14px; }
+  .controls .field select { min-width: 150px; }
+  .stage { position: relative; background: var(--shot); border-radius: 14px; overflow: hidden; aspect-ratio: 16 / 9; }
+  .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .stage .idle { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+                 color: #A1A1AA; text-align: center; padding: 20px; font-size: 14px; }
+  .stations { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  .station .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .station .head h2 { margin: 0; }
+  .station-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
+  .station-body .info { padding-top: 2px; }
+  .verdict { font-size: 17px; font-weight: 600; margin: 4px 0 2px; letter-spacing: -.01em; }
+  .kv { display: grid; grid-template-columns: 100px 1fr; gap: 8px 12px; font-size: 14px; margin-top: 12px; align-items: center; }
+  .kv > div:nth-child(odd) { color: var(--muted); font-size: 13px; }
+  @media (max-width: 1100px) { .station-body { grid-template-columns: 1fr; } }
+  @media (min-width: 1600px) { .stations { grid-template-columns: 1fr 1fr; } .station-body { grid-template-columns: 1fr; } }
+
+  /* ---------- assignment summary + picker ---------- */
+  .summary { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--track); color: var(--text); white-space: nowrap; font-weight: 500; }
+  .tag.more { color: var(--muted); }
+  .link { font: inherit; font-size: 13px; font-weight: 500; background: none; border: 0; color: var(--link); cursor: pointer;
+          padding: 4px 6px; min-height: 30px; border-radius: 6px; }
+  .link:hover { background: var(--hover); }
+  .picker { position: absolute; z-index: 30; width: 290px; background: var(--raised); border: 1px solid var(--border);
+            border-radius: 14px; box-shadow: 0 16px 40px rgba(0,0,0,.18); padding: 12px; }
+  .picker .title { font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+  .picker input[type=search] { width: 100%; }
+  .picker .list { max-height: 240px; overflow-y: auto; margin: 8px 0; border: 1px solid var(--border); border-radius: 10px; }
+  .picker .list label { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 12px; font-size: 14px; cursor: pointer; }
+  .picker .list label:hover { background: var(--hover); }
+  .picker .list input { width: 16px; height: 16px; accent-color: var(--accent); }
+  .picker .foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+  /* ---------- students ---------- */
+  .people-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px; }
+  .person { border: 1px solid var(--border); border-radius: 14px; padding: 8px 8px 10px; text-align: center; background: var(--card); }
+  .person img, .person .noimg { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; display: flex;
+                                align-items: center; justify-content: center; background: var(--track); color: var(--muted); }
+  .person .pname { font-weight: 600; margin-top: 8px; }
+  .watch { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--bad); font-weight: 500; min-height: 30px; cursor: pointer; }
+  .watch input { width: 16px; height: 16px; accent-color: var(--bad); }
+  .thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
+  .thumb { font-size: 12px; color: var(--muted); }
+  .thumb img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 3px solid transparent; display: block; }
+  .thumb.ok img { border-color: var(--ok); } .thumb.warn img { border-color: var(--warn); } .thumb.skip img { border-color: var(--bad); opacity: .6; }
+  .drop { display: block; border: 1.5px dashed var(--border); border-radius: 14px; padding: 28px; text-align: center; cursor: pointer; }
+  .drop:hover, .drop:focus-within { border-color: var(--text); background: var(--hover); }
+  .result img { max-width: 100%; border-radius: 12px; }
+  .sim { display: grid; grid-template-columns: 110px 1fr 48px; gap: 8px; align-items: center; font-size: 13px; margin: 4px 0; }
+  .simbar { position: relative; height: 8px; background: var(--track); border-radius: 4px; }
+  .simbar > div { height: 100%; border-radius: 4px; }
+  .simbar .th { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
+
+  /* ---------- PCs / help ---------- */
+  .add-pc { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 16px; }
+  .lab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 14px; }
+  .lab-item { border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
+  .lab-item img { width: 100%; border-radius: 8px; display: block; background: var(--shot); }
+  .lab-item .t { font-weight: 600; margin-top: 8px; }
+  .lab-item .f { font-family: var(--mono); font-size: 12px; color: var(--link); }
+  .lab-item canvas { width: 100%; height: 56px; display: block; margin-top: 6px; }
+  .explain ol { padding-left: 22px; margin: 0; } .explain li { margin: 10px 0; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M15 10l5-3v10l-5-3z"/><rect x="2" y="6" width="13" height="12" rx="2"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2a6 6 0 0 1 6 6v1"/><path d="M16 4a4 4 0 0 1 0 8"/><path d="M22 21v-1a6 6 0 0 0-4-5.7"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 9.3-5M18 8c0 7 3 9 3 9H9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0M3 3l18 18"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="rail">
+    <div class="logo" aria-hidden="true"><svg class="icon"><use href="#i-shield"/></svg></div>
+    <nav class="nav" aria-label="Main">
+      <a href="#overview" data-page="overview" data-tip="Overview" aria-label="Overview"><svg class="icon"><use href="#i-overview"/></svg><span class="label">Overview</span><span class="count" id="nav-count" style="display:none"></span></a>
+      <a href="#cameras" data-page="cameras" data-tip="Cameras" aria-label="Cameras"><svg class="icon"><use href="#i-camera"/></svg><span class="label">Cameras</span></a>
+      <a href="#students" data-page="students" data-tip="Students" aria-label="Students"><svg class="icon"><use href="#i-users"/></svg><span class="label">Students</span><span class="count" id="students-count" style="display:none"></span></a>
+      <a href="#pcs" data-page="pcs" data-tip="PCs" aria-label="PCs"><svg class="icon"><use href="#i-monitor"/></svg><span class="label">PCs</span></a>
+      <a href="#help" data-page="help" data-tip="How it works" aria-label="How it works"><svg class="icon"><use href="#i-help"/></svg><span class="label">How it works</span></a>
+    </nav>
+    <div class="rail-foot">
+      <button class="rail-btn" id="sound-btn" data-tip="Alarm sound: on" aria-label="Alarm sound: on" aria-pressed="true"><svg class="icon"><use href="#i-bell"/></svg></button>
+      <button class="rail-btn" id="theme-btn" data-tip="Dark mode" aria-label="Switch to dark mode"><svg class="icon"><use href="#i-moon"/></svg></button>
+      <span class="live-dot" id="live-dot" title="Connecting…"></span>
+    </div>
+  </aside>
+
+  <main class="content">
+    <div class="alarm" id="alarm" role="alert" style="display:none">
+      <span id="alarm-text"></span>
+      <a class="btn" href="#overview">View</a>
+    </div>
+
+    <!-- OVERVIEW: camera wall + feed -->
+    <section class="page" id="page-overview" aria-labelledby="h-overview">
+      <div class="ov">
+        <div>
+          <div class="page-head">
+            <div class="filters" role="group" aria-label="Filter PCs" id="pc-filter"></div>
+            <span class="updated"><span class="dot" id="upd-dot"></span><span id="status">Connecting…</span><span id="clock"></span></span>
+          </div>
+          <h1 class="sr-only" id="h-overview">Overview</h1>
+          <div class="pcgrid" id="pcgrid"></div>
+        </div>
+        <aside class="card feed" aria-label="Incident feed">
+          <div class="feed-head"><h2>Feed</h2><span class="muted" id="inc-summary"></span></div>
+          <div id="incidents"><div class="empty">No incidents.</div></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- CAMERAS -->
+    <section class="page" id="page-cameras" aria-labelledby="h-cameras">
+      <div class="page-head">
+        <div><h1 id="h-cameras">Cameras</h1>
+          <p>Each camera is one PC. Choose which PC it belongs to and which camera to use, then start it.</p></div>
+        <div class="actions"><button class="btn primary" id="add-station"><svg class="icon"><use href="#i-plus"/></svg>Add camera</button></div>
+      </div>
+      <div class="legend" style="margin-bottom:14px">
+        <span><span class="swatch" style="background:#1f9d55"></span>Assigned to this PC</span>
+        <span><span class="swatch" style="background:#f08c00"></span>Not assigned, timer running</span>
+        <span><span class="swatch" style="background:#e03131"></span>Alert raised</span>
+        <span><span class="swatch" style="background:#868e96"></span>Bystander / face not visible</span>
+      </div>
+      <div class="stations" id="stations"></div>
+    </section>
+
+    <!-- STUDENTS -->
+    <section class="page" id="page-students" aria-labelledby="h-students">
+      <div class="page-head">
+        <div><h1 id="h-students">Students</h1>
+          <p>Enrolled students and their best photo. Photos come from <code>enrollment/&lt;name&gt;/</code>; after adding a folder, re-run enrollment.</p></div>
+        <div class="actions"><button class="btn primary" id="enroll-btn"><svg class="icon"><use href="#i-refresh"/></svg>Re-run enrollment</button></div>
+      </div>
+      <div class="alarm calm" id="enroll-pending" role="status" style="display:none">
+        <span class="txt" style="flex:1"></span>
+        <button class="btn" id="enroll-now">Enroll now</button>
+      </div>
+      <div class="msg" id="enroll-msg" role="status" style="margin:-8px 0 12px"></div>
+      <div class="card"><div id="people"></div></div>
+      <div class="grid" style="margin-top:18px">
+        <div class="card">
+          <h2>Check a photo</h2>
+          <p class="muted" style="margin-top:-6px">Upload any photo to see who the system thinks it is and how sure it is.</p>
+          <label class="drop" id="drop">
+            <input type="file" id="photo" accept="image/*" class="sr-only">
+            <div><b>Choose a photo</b> or drag it here</div>
+            <div class="muted">Try an enrolled student, then someone who is not enrolled</div>
+          </label>
+          <div class="result" id="photo-img" style="margin-top:16px"></div>
+        </div>
+        <div class="card"><h2>Result</h2><div id="photo-result" class="empty">No photo yet.</div></div>
+      </div>
+    </section>
+
+    <!-- PCS -->
+    <section class="page" id="page-pcs" aria-labelledby="h-pcs">
+      <div class="page-head">
+        <div><h1 id="h-pcs">PCs</h1>
+          <p>Every PC, its camera, and the students allowed to use it. A PC can have several students (for example different classes).</p></div>
+      </div>
+      <div class="card">
+        <div class="table-wrap" id="assign"></div>
+        <form class="add-pc" id="add-pc-form">
+          <label class="field">New PC name <input type="text" id="new-pc" placeholder="PC-03" autocomplete="off"></label>
+          <button class="btn primary" id="add-pc" type="submit"><svg class="icon"><use href="#i-plus"/></svg>Add PC</button>
+          <span class="msg" id="assign-msg" role="status"></span>
+        </form>
+      </div>
+      <div class="card" style="margin-top:16px"><h2>Usage log <span class="muted">how long each person used each PC</span></h2>
+        <div class="table-wrap" id="sessions"></div></div>
+    </section>
+
+    <!-- HELP -->
+    <section class="page" id="page-help" aria-labelledby="h-help">
+      <div class="page-head">
+        <div><h1 id="h-help">How it works</h1>
+          <p>The detection pipeline and the alert rules, step by step.</p></div>
+      </div>
+      <div class="grid">
+        <div class="card explain">
+          <h2>The pipeline</h2>
+          <ol>
+            <li><b>One camera per PC.</b> Each PC's camera is mapped to that PC ("this camera is PC-01"), so whoever
+              sits in front of it is that PC's user.</li>
+            <li><b>Enrollment (once).</b> Each student gives about 15 photos. InsightFace finds the face and ArcFace turns
+              it into 512 numbers (an <i>embedding</i>). Photos of the same person give similar numbers.</li>
+            <li><b>Live video.</b> The camera plays directly in the browser at full speed. Many times per second a
+              frame is sent for detection, and the result is drawn on top of the video.</li>
+            <li><b>Preprocessing (Lessons 1–3).</b> Each frame's brightness and contrast are measured. A dark or flat
+              frame is corrected with g = a·f + b before detection; a camera blinded by light is detected with the
+              digital negative. See "Course lessons applied" and the lab below.</li>
+            <li><b>YOLO26 detects people (core step).</b> YOLO26, pretrained on COCO, finds every person in the frame
+              (the solid boxes). This is the first stage: everything after it works on YOLO's person boxes.</li>
+            <li><b>YOLO26 tracks people.</b> ByteTrack links YOLO's boxes from frame to frame, so each person keeps an
+              ID (#1, #2…) while they move or turn away.</li>
+            <li><b>The user.</b> The largest YOLO person box (closest to the camera) is the person using the PC.
+              Other people are bystanders and count toward crowding.</li>
+            <li><b>Face inside the person box.</b> SCRFD looks for the face only inside each YOLO person box (dashed
+              box), and ArcFace turns it into an embedding.</li>
+            <li><b>Recognition.</b> The embedding is compared with every enrolled photo using <i>cosine similarity</i>.
+              Best score ≥ <code id="c-th"></code> → that student; otherwise <b>unknown</b>. The name is attached to the
+              YOLO track ID, so it stays even when the face is briefly hidden, and is re-checked every second.</li>
+            <li><b>Rules with thresholds.</b> If the user is not assigned to this PC, a timer starts. The alert only
+              fires if they stay past the threshold, so sitting down briefly never triggers anything.</li>
+            <li><b>Incidents.</b> Every alert becomes an incident with a snapshot as evidence. The lab technician
+              clicks <i>Send technician</i>, removes the person, then marks it <i>Resolved</i> or <i>False alarm</i>.</li>
+            <li><b>Logging.</b> Each stay becomes a session (who, which PC, start, end, minutes). It ends when the person
+              has not been seen for <code id="c-gap"></code>.</li>
+          </ol>
+        </div>
+        <div class="card">
+          <h2>Alert rules</h2>
+          <div class="table-wrap"><table id="rules"></table></div>
+          <p class="muted" style="margin-top:12px">These come from <code>detector/config.py</code>. Change them there and
+            restart. For testing, lower them (for example 10 seconds).</p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <h2>Course lessons applied</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Lesson</th><th>Where it is used in the system</th><th>Code</th></tr></thead>
+          <tbody>
+            <tr><td><b>Definitions and Notations</b></td><td>Every frame is an image f(x, y) of M×N pixels with intensities r in [0, L−1], L = 256. All formulas below use this notation.</td><td><code>preprocess.py</code></td></tr>
+            <tr><td><b>Image Data Formats</b></td><td>The browser sends JPEG; it is decoded into an 8-bit BGR array (H×W×3), shrunk to 640 px wide, and converted to grayscale and YCrCb (brightness is changed on Y only, so colors stay natural).</td><td><code>detection.py</code>, <code>preprocess.py</code></td></tr>
+            <tr><td><b>Lesson 1: Brightness and Contrast</b></td><td>Brightness (mean) and contrast (std dev) are measured on every frame and shown live. A dark or flat frame is corrected with <b>g = a·f + b</b> before YOLO26 and recognition (the method chosen by experiment). Contrast also drives the camera-blocked check.</td><td><code>enhance()</code>, <code>stats()</code></td></tr>
+            <tr><td><b>Lesson 2: Digital Negative and Normalization</b></td><td>The <b>negative s = (L−1) − r</b> detects a camera blinded by a bright light (its negative is almost black). <b>Min-max normalization</b> is an alternative enhancement (close second in the experiment).</td><td><code>negative()</code>, <code>normalize()</code></td></tr>
+            <tr><td><b>Lesson 3: Histogram Equalization</b></td><td>Implemented from the formula <b>s_k = (L−1)·CDF(r_k)</b> (verified identical to OpenCV). Compared in the experiment; it lowered recognition scores because it amplifies sensor noise, so it is selectable but not the default.</td><td><code>equalize_gray()</code></td></tr>
+            <tr><td><b>Generating Outputs</b></td><td>Annotated live video, evidence snapshots per incident, CSV logs (sessions, alerts), the lighting experiment table, and the histograms in the lab below.</td><td><code>drawing.py</code>, <code>incidents.py</code>, <code>evaluate_lighting.py</code></td></tr>
+            <tr><td><b>Beyond the course</b></td><td>YOLO26 person detection + ByteTrack tracking, ArcFace embeddings with cosine similarity, CLAHE (adaptive equalization), threshold-based alert rules.</td><td><code>detection.py</code>, <code>tracker.py</code></td></tr>
+          </tbody>
+        </table></div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <h2>Image processing lab</h2>
+        <p class="muted" style="margin-top:-6px">Upload a photo to see every lesson's operation on it, with its histogram,
+          brightness and contrast. Use the slider to simulate a dim room.</p>
+        <div class="controls">
+          <label class="field">Photo <input type="file" id="lab-photo" accept="image/*"></label>
+          <label class="field">Light level: <span id="lab-dark-val">100%</span>
+            <input type="range" id="lab-dark" min="5" max="100" step="5" value="100" style="min-height:40px"></label>
+        </div>
+        <div class="muted" id="lab-auto" role="status"></div>
+        <div class="lab-grid" id="lab"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = s => s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+};
+let state = null;
+
+/* ---- Navigation: one page per URL hash (#overview, #cameras, …) so links, refresh and Back all work ---- */
+const PAGES = ["overview", "cameras", "students", "pcs", "help"];
+function showPage() {
+  const page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
+  document.querySelectorAll(".page").forEach(s => s.classList.toggle("active", s.id === "page-" + page));
+  document.querySelectorAll(".nav a").forEach(a => a.dataset.page === page ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
+  document.title = `${document.querySelector(".nav a[aria-current] .label").textContent} · PC Usage Monitor`;
+  if (page === "students") loadEnrollment();
+  window.scrollTo(0, 0);
+}
+window.addEventListener("hashchange", showPage);
+
+function bar(value, limit, color) {
+  const pct = Math.min(100, limit ? value / limit * 100 : 0);
+  return `<div class="bar"><div style="width:${pct}%;background:${color}"></div></div>`;
+}
+function table(rows, cols) {
+  if (!rows.length) return `<div class="empty">Nothing yet.</div>`;
+  return `<table><tr>${cols.map(c => `<th>${c[0]}</th>`).join("")}</tr>` +
+    rows.map(r => `<tr>${cols.map(c => `<td>${c[1](r)}</td>`).join("")}</tr>`).join("") + `</table>`;
+}
+
+/* ================= STATIONS: each panel = one camera = one PC ================= */
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let cameras = [];   // video input devices on this computer
+const stations = [];
+
+async function listCams() {
+  if (!navigator.mediaDevices) return;
+  cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
+  stations.forEach(s => s.fillCams());
+}
+
+function pcOptions() {
+  const pcs = state ? [...new Set([...Object.keys(state.assignments), ...state.pcs.map(p => p.pc)])] : [];
+  return pcs.length ? pcs.sort() : ["PC-01"];
+}
+function nextPcName() {
+  const used = new Set(pcOptions());
+  for (let n = 1; ; n++) { const name = "PC-" + String(n).padStart(2, "0"); if (!used.has(name)) return name; }
+}
+async function savePc(pc, names) {
+  await fetch("/api/pcs/" + encodeURIComponent(pc), {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({names})});
+  await poll(true);
+}
+async function createPc(pc) {
+  if (state && pc in state.assignments) return;
+  await savePc(pc, []);
+}
+
+/* ---- Compact assignment UI: a short summary + an "Edit" button that opens a searchable picker ---- */
+function summaryHtml(pc, max = 3) {
+  const names = (state && state.assignments[pc]) || [];
+  const shown = names.slice(0, max).map(n => `<span class="tag">${esc(n)}</span>`).join("");
+  const more = names.length > max ? `<span class="tag more" title="${esc(names.slice(max).join(", "))}">+${names.length - max} more</span>` : "";
+  return `<span class="summary">${names.length ? shown + more : `<span class="muted">nobody</span>`}
+    <button class="link edit-assign" data-pc="${esc(pc)}">Edit</button></span>`;
+}
+
+let picker = null;   // the open picker, if any
+function closePicker() { if (picker) { picker.el.remove(); picker = null; } }
+
+function openPicker(anchor, pc) {
+  closePicker();
+  const chosen = new Set((state && state.assignments[pc]) || []);
+  const el = document.createElement("div");
+  el.className = "picker";
+  el.innerHTML = `<div class="title">Students assigned to ${esc(pc)}</div>
+    <input type="search" placeholder="Search students…" aria-label="Search students">
+    <div class="list"></div>
+    <div class="foot"><span class="muted count"></span>
+      <span><button class="secondary clear">Clear</button> <button class="secondary cancel">Cancel</button>
+      <button class="primary save">Save</button></span></div>`;
+  document.body.appendChild(el);
+  const r = anchor.getBoundingClientRect();
+  const left = Math.min(r.left + window.scrollX, window.scrollX + document.documentElement.clientWidth - 296);
+  el.style.left = Math.max(8, left) + "px";
+  el.style.top = (r.bottom + window.scrollY + 6) + "px";
+  picker = {el, pc};
+
+  const list = el.querySelector(".list"), search = el.querySelector("input");
+  const people = (state && state.people) || [];
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const rows = people.filter(n => n.toLowerCase().includes(q));
+    // assigned students first, then alphabetical
+    rows.sort((a, b) => (chosen.has(b) - chosen.has(a)) || a.localeCompare(b));
+    list.innerHTML = rows.length
+      ? rows.map(n => `<label><input type="checkbox" value="${esc(n)}" ${chosen.has(n) ? "checked" : ""}>${esc(n)}</label>`).join("")
+      : `<div class="empty" style="padding:8px 10px">${people.length ? "No match." : "Nobody enrolled yet."}</div>`;
+    el.querySelector(".count").textContent = `${chosen.size} selected`;
+  };
+  list.onchange = e => { e.target.checked ? chosen.add(e.target.value) : chosen.delete(e.target.value); el.querySelector(".count").textContent = `${chosen.size} selected`; };
+  search.oninput = draw;
+  el.querySelector(".clear").onclick = () => { chosen.clear(); draw(); };
+  el.querySelector(".cancel").onclick = closePicker;
+  el.querySelector(".save").onclick = async () => { closePicker(); await savePc(pc, [...chosen]); };
+  draw();
+  search.focus();
+}
+document.addEventListener("click", e => {
+  const edit = e.target.closest(".edit-assign");
+  if (edit) { e.stopPropagation(); openPicker(edit, edit.dataset.pc); return; }
+  if (picker && !picker.el.contains(e.target)) closePicker();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closePicker(); });
+
+class Station {
+  constructor(index) {
+    this.i = index; this.on = false; this.last = null; this.stream = null; this.sentW = 0; this.sentH = 0;
+    this.grab = document.createElement("canvas");
+    const el = document.createElement("div");
+    el.className = "card station";
+    el.innerHTML = `
+      <div class="head"><h2><svg class="icon"><use href="#i-camera"/></svg>Camera ${index + 1}</h2>
+        ${index ? `<button class="btn danger rm">Remove</button>` : ""}</div>
+      <div class="controls">
+        <label class="field">This camera is PC <select class="pc"></select></label>
+        <label class="field">Camera device <select class="cam"><option value="">Default camera</option></select></label>
+        <button class="btn primary go">Start camera</button>
+      </div>
+      <div class="station-body">
+        <div class="stage"><video playsinline muted></video><canvas></canvas>
+          <div class="idle">Choose which PC this camera belongs to and which camera to use, then click Start camera.</div></div>
+        <div class="info">
+          <div class="muted" style="font-weight:600">Status</div>
+          <div class="verdict">Camera not started</div><div class="vbar"></div>
+          <div class="kv"><div>Assigned to</div><div class="assigned">–</div>
+            <div>Person seen</div><div class="user">–</div><div>People here</div><div class="people">–</div></div>
+          <div class="muted imgq" style="margin-top:10px"></div>
+          <div class="muted perf" style="margin-top:6px"></div>
+        </div>
+      </div>`;
+    this.el = el; this.q = s => el.querySelector(s);
+    this.video = this.q("video"); this.overlay = this.q("canvas");
+    this.q(".go").onclick = () => this.on ? this.stop() : this.start();
+    this.q(".pc").onchange = async () => {
+      const sel = this.q(".pc");
+      if (sel.value === "__new__") {
+        const name = (prompt("Name of the new PC:", nextPcName()) || "").trim().toUpperCase();
+        if (!/^[A-Z0-9_-]{1,20}$/.test(name)) { sel.value = store.get(`pc${this.i}`) || pcOptions()[0]; return; }
+        await createPc(name);
+        this.fillPcs(name);
+      }
+      store.set(`pc${this.i}`, sel.value);
+      this.renderAssigned();
+    };
+    this.q(".cam").onchange = () => store.set(`cam${this.i}`, this.q(".cam").value);
+    if (this.q(".rm")) this.q(".rm").onclick = () => {
+      this.stop(); el.remove(); stations.splice(stations.indexOf(this), 1);
+      store.set("stations", String(stations.length));
+    };
+    $("#stations").appendChild(el);
+    this.fillPcs(); this.fillCams();
+  }
+
+  fillPcs(force) {
+    const sel = this.q(".pc"), opts = pcOptions();
+    let cur = force || (sel.value !== "__new__" && sel.value) || store.get(`pc${this.i}`) || opts[this.i] || opts[0];
+    if (!opts.includes(cur)) opts.push(cur);
+    const html = opts.sort().map(pc => `<option ${pc === cur ? "selected" : ""}>${esc(pc)}</option>`).join("")
+      + `<option value="__new__">+ New PC…</option>`;
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+    sel.value = cur;
+    this.renderAssigned();
+  }
+
+  renderAssigned() {
+    if (!state) return;
+    const box = this.q(".assigned"), html = summaryHtml(this.q(".pc").value);
+    if (box.innerHTML !== html) box.innerHTML = html;
+  }
+
+  fillCams() {
+    const sel = this.q(".cam"), want = sel.value || store.get(`cam${this.i}`);
+    if (!cameras.length) return;
+    sel.innerHTML = cameras.map((c, k) => `<option value="${esc(c.deviceId)}">${esc(c.label || "Camera " + (k + 1))}</option>`).join("");
+    const taken = stations.filter(s => s !== this && s.on).map(s => s.q(".cam").value);
+    const pick = (want && cameras.some(c => c.deviceId === want)) ? want
+      : (cameras.find(c => !taken.includes(c.deviceId) && (this.i === 0 ? /iriun/i.test(c.label) : true))
+         || cameras.find(c => !taken.includes(c.deviceId)) || cameras[0]).deviceId;
+    sel.value = pick;
+  }
+
+  async start() {
+    const idle = this.q(".idle");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      idle.textContent = "The browser blocks the camera on this address. Open http://localhost:8765 instead."; return;
+    }
+    const id = this.q(".cam").value;
+    const clash = stations.find(s => s !== this && s.on && s.q(".cam").value === id);
+    if (clash) { idle.textContent = `That camera is already used by Camera ${clash.i + 1}. Pick a different one.`; return; }
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({video: {deviceId: id ? {exact: id} : undefined,
+        width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 30}}});
+    } catch (e) {
+      idle.textContent = "Could not open the camera: " + e.message + ". Allow camera access and check it is connected."; return;
+    }
+    this.video.srcObject = this.stream;
+    await this.video.play();
+    idle.style.display = "none";
+    this.on = true; this.last = null;
+    this.q(".go").textContent = "Stop camera";
+    await listCams();
+    const dev = this.stream.getVideoTracks()[0].getSettings().deviceId;
+    if (dev) { this.q(".cam").value = dev; store.set(`cam${this.i}`, dev); }
+    store.set(`pc${this.i}`, this.q(".pc").value);
+    this.detectLoop();
+    requestAnimationFrame(() => this.paint());
+  }
+
+  stop() {
+    this.on = false;
+    if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+    this.stream = null; this.last = null;
+    this.q(".go").textContent = "Start camera";
+    const idle = this.q(".idle"); idle.style.display = "flex"; idle.textContent = "Camera stopped.";
+    this.overlay.getContext("2d").clearRect(0, 0, this.overlay.width, this.overlay.height);
+  }
+
+  /* Detection loop: send a small frame, wait for the answer, repeat. The video itself plays at full speed. */
+  async detectLoop() {
+    let n = 0, since = performance.now();
+    while (this.on) {
+      const v = this.video;
+      if (!v.videoWidth) { await sleep(50); continue; }
+      const w = Math.min(640, v.videoWidth), h = Math.round(v.videoHeight * w / v.videoWidth);
+      this.grab.width = w; this.grab.height = h;
+      this.grab.getContext("2d").drawImage(v, 0, 0, w, h);
+      const blob = await new Promise(r => this.grab.toBlob(r, "image/jpeg", 0.8));
+      try {
+        const res = await fetch("/api/frame?pc=" + encodeURIComponent(this.q(".pc").value),
+          {method: "POST", body: blob, headers: {"Content-Type": "image/jpeg"}});
+        const data = await res.json();
+        if (!res.ok) { this.q(".perf").textContent = data.error || "Server error"; await sleep(1000); continue; }
+        if (!this.on) break;
+        this.last = data; this.sentW = w; this.sentH = h;
+        this.render(data);
+      } catch (e) {
+        this.q(".perf").textContent = "Lost connection to the server."; await sleep(1000);
+      }
+      n++;
+      const secs = (performance.now() - since) / 1000;
+      if (secs >= 2) {
+        this.q(".perf").textContent = `Video ${v.videoWidth}x${v.videoHeight} live · detection ${(n / secs).toFixed(1)}/s (${this.last ? this.last.ms : "–"} ms each)`;
+        n = 0; since = performance.now();
+      }
+    }
+  }
+
+  /* The overlay is redrawn every screen refresh on top of the live video. */
+  paint() {
+    if (!this.on) return;
+    const o = this.overlay, rect = o.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    if (o.width !== Math.round(rect.width * dpr) || o.height !== Math.round(rect.height * dpr)) {
+      o.width = Math.round(rect.width * dpr); o.height = Math.round(rect.height * dpr);
+    }
+    const ctx = o.getContext("2d");
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, rect.width, rect.height);
+    const d = this.last;
+    if (d && this.sentW) {
+      const s = Math.min(rect.width / this.sentW, rect.height / this.sentH);   // video uses object-fit: contain
+      const ox = (rect.width - this.sentW * s) / 2, oy = (rect.height - this.sentH * s) / 2;
+      if (d.covered) {
+        ctx.fillStyle = "rgba(160,0,0,.55)"; ctx.fillRect(0, 0, rect.width, rect.height);
+        ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.font = "600 26px system-ui, sans-serif";
+        ctx.fillText("CAMERA BLOCKED", rect.width / 2, rect.height / 2);
+        ctx.font = "14px system-ui, sans-serif";
+        ctx.fillText(`${d.covered_reason || "covered"} for ${d.covered_for}s`, rect.width / 2, rect.height / 2 + 26);
+        ctx.textAlign = "left";
+      }
+      for (const p of d.people) {
+        // YOLO26 person box (main box) + thin face box inside it
+        const [x1, y1, x2, y2] = p.box;
+        const X = ox + x1 * s, Y = oy + y1 * s, W = (x2 - x1) * s, H = (y2 - y1) * s;
+        ctx.setLineDash([]);
+        ctx.lineWidth = p.kind === "alert" ? 4 : 2.5; ctx.strokeStyle = p.color; ctx.strokeRect(X, Y, W, H);
+        if (p.face_box) {
+          const [a, b, c, e] = p.face_box;
+          ctx.setLineDash([5, 4]); ctx.lineWidth = 1.5;
+          ctx.strokeRect(ox + a * s, oy + b * s, (c - a) * s, (e - b) * s);
+          ctx.setLineDash([]);
+        }
+        ctx.font = "600 13px system-ui, sans-serif";
+        const tw = ctx.measureText(p.label).width + 12, ty = Math.max(Y, 26);
+        ctx.fillStyle = p.color; ctx.fillRect(X, ty, tw, 20);
+        ctx.fillStyle = "#fff"; ctx.fillText(p.label, X + 6, ty + 15);
+      }
+      ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(0, 0, rect.width, 24);
+      ctx.fillStyle = "#e03131"; ctx.beginPath(); ctx.arc(12, 12, 5, 0, 7); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.font = "12px system-ui, sans-serif";
+      ctx.fillText(`REC  ${d.pc} camera  ${new Date().toLocaleTimeString()}  ·  YOLO26 people: ${d.persons}`, 24, 16);
+      if (d.people.some(p => p.kind === "alert")) {
+        ctx.fillStyle = "#e03131"; ctx.fillRect(0, rect.height - 30, rect.width, 30);
+        ctx.fillStyle = "#fff"; ctx.font = "600 14px system-ui, sans-serif"; ctx.textAlign = "center";
+        ctx.fillText(`ALERT: not allowed on ${d.pc}. Technician notified`, rect.width / 2, rect.height - 10);
+        ctx.textAlign = "left";
+      }
+    }
+    requestAnimationFrame(() => this.paint());
+  }
+
+  render(d) {
+    const user = d.people.find(p => p.user);
+    this.q(".people").textContent = `${d.persons} (YOLO26)`;
+    if (d.prep) {   // live image measurements (Lesson 1) and the correction applied, if any
+      const b = d.prep.before, a = d.prep.after;
+      this.q(".imgq").innerHTML = `Image: brightness <b>${b.brightness}</b>, contrast <b>${b.contrast}</b>` +
+        (d.prep.steps.length ? ` → corrected to ${a.brightness} / ${a.contrast}<br>${esc(d.prep.steps.join("; "))}` : " (no correction needed)");
+    }
+    this.q(".user").textContent = !user ? "nobody"
+      : user.name === "unidentified" ? `Person #${user.id} (face not visible yet)`
+      : `#${user.id} ${user.name === "unknown" ? "Unknown person" : user.name} (match ${user.score.toFixed(2)})`;
+    let v = "Nobody at this PC", color = "var(--muted)", barHtml = "";
+    if (d.covered) { v = "Camera blocked"; color = "var(--bad)"; }
+    else if (user && user.name === "unidentified") { v = "Someone is here, looking for their face"; color = "var(--muted)"; }
+    else if (user) {
+      if (user.state === "ok") { v = "Assigned user"; color = "var(--ok)"; }
+      else if (user.alert) { v = "ALERT raised"; color = "var(--bad)"; }
+      else {
+        v = user.state === "watchlist" ? "Watchlisted person" : "Not assigned to this PC";
+        color = "var(--warn)";
+        barHtml = `<div class="muted">Alert in ${Math.max(0, user.limit - user.seconds)}s if they stay</div>` + bar(user.seconds, user.limit, "var(--warn)");
+      }
+    }
+    const el = this.q(".verdict"); el.textContent = v; el.style.color = color;
+    this.q(".vbar").innerHTML = barHtml;
+  }
+}
+
+function fillPcSelect() { stations.forEach(s => s.fillPcs()); }
+function addStation() {
+  const next = stations.length ? Math.max(...stations.map(s => s.i)) + 1 : 0;
+  const st = new Station(next);
+  stations.push(st);
+  store.set("stations", String(stations.length));
+  return st;
+}
+/* "+ Add another camera": the new camera gets a PC no other panel is using (creating PC-0N if needed). */
+$("#add-station").onclick = async () => {
+  const used = new Set(stations.map(s => s.q(".pc").value));
+  let pc = pcOptions().find(p => !used.has(p));
+  if (!pc) { pc = nextPcName(); await createPc(pc); }
+  const st = addStation();
+  st.fillPcs(pc); store.set(`pc${st.i}`, pc);
+};
+for (let k = 0, n = Math.max(1, Math.min(4, +store.get("stations") || 1)); k < n; k++) addStation();
+if (navigator.mediaDevices) navigator.mediaDevices.addEventListener("devicechange", listCams);
+
+/* ================= CONSOLE ================= */
+const TYPE_LABEL = {WATCHLIST: "WATCHLIST", UNAUTHORIZED: "UNAUTHORIZED", WRONG_SEAT: "WRONG PC",
+                    CROWDING: "CROWDING", ABSENT: "ABSENT", CAMERA_BLOCKED: "CAMERA BLOCKED"};
+const STATUS_LABEL = {open: "Open", dispatched: "Technician sent", resolved: "Resolved", false_alarm: "False alarm"};
+let knownIncidents = null, soundOn = true, audioCtx = null;
+
+function beep() {
+  if (!soundOn) return;
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.35, 0.7].forEach(at => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "square"; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.08, audioCtx.currentTime + at);
+      g.gain.setValueAtTime(0, audioCtx.currentTime + at + 0.2);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(audioCtx.currentTime + at); o.stop(audioCtx.currentTime + at + 0.22);
+    });
+  } catch (e) { /* audio not allowed until the page is clicked */ }
+}
+/* ---- rail buttons: alarm sound + light/dark theme ---- */
+function setRailBtn(btn, icon, tip) {
+  btn.innerHTML = `<svg class="icon"><use href="#${icon}"/></svg>`;
+  btn.dataset.tip = tip; btn.setAttribute("aria-label", tip);
+}
+$("#sound-btn").onclick = () => {
+  soundOn = !soundOn;
+  setRailBtn($("#sound-btn"), soundOn ? "i-bell" : "i-bell-off", `Alarm sound: ${soundOn ? "on" : "off"}`);
+  $("#sound-btn").setAttribute("aria-pressed", String(soundOn));
+  if (soundOn) beep();
+};
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  store.set("theme", t);
+  setRailBtn($("#theme-btn"), t === "dark" ? "i-sun" : "i-moon", t === "dark" ? "Light mode" : "Dark mode");
+}
+$("#theme-btn").onclick = () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+applyTheme(document.documentElement.dataset.theme || "light");
+
+/* ---- Overview: camera wall (one tile per PC) with filter chips ---- */
+let pcFilter = store.get("pcFilter") || "all";
+const FILTERS = [
+  ["all", "All", () => true],
+  ["attention", "Needs attention", p => p.covered || (p.user && (p.user.alert || p.user.state !== "ok")) || p.absent_alert],
+  ["online", "Online", p => p.online],
+  ["offline", "Offline", p => !p.online],
+];
+function renderFilters(s) {
+  const html = FILTERS.map(([key, label, fn]) =>
+    `<button class="chip" data-f="${key}" aria-pressed="${pcFilter === key}">${label} <span class="n">${s.pcs.filter(fn).length}</span></button>`).join("");
+  if ($("#pc-filter").innerHTML !== html) $("#pc-filter").innerHTML = html;
+}
+$("#pc-filter").onclick = e => {
+  const b = e.target.closest(".chip"); if (!b) return;
+  pcFilter = b.dataset.f; store.set("pcFilter", pcFilter);
+  if (state) { renderFilters(state); renderPCs(state); }
+};
+
+function who(name) { return name === "unknown" ? "Unknown person" : name === "unidentified" ? "Someone (face not visible)" : name; }
+
+function renderPCs(s) {
+  const c = s.config, fn = (FILTERS.find(f => f[0] === pcFilter) || FILTERS[0])[2];
+  const pcs = s.pcs.filter(fn);
+  if (!s.pcs.length) { $("#pcgrid").innerHTML = `<div class="empty">No PCs yet. Add one on the <a href="#pcs">PCs</a> page, or start a camera on the <a href="#cameras">Cameras</a> page.</div>`; return; }
+  if (!pcs.length) { $("#pcgrid").innerHTML = `<div class="empty">No PCs match this filter.</div>`; return; }
+  const now = new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"});
+  $("#pcgrid").innerHTML = pcs.map(p => {
+    const u = p.user;
+    let tl = `<span class="pill"><span class="d"></span>Offline</span>`, tr = "", sub, extra = "";
+    if (p.online) tl = `<span class="pill live"><span class="d"></span>Live</span>`;
+    if (!p.online) sub = "Camera offline";
+    else if (p.covered) { tr = `<span class="pill alert">Camera blocked</span>`; sub = "View covered, blank or blinded"; }
+    else if (!u) sub = "Nobody at this PC";
+    else if (u.state === "ok") sub = `${esc(u.name)} · assigned here`;
+    else if (u.alert) { tr = `<span class="pill alert">Alert</span>`; sub = `${esc(who(u.name))} · not allowed here`; }
+    else if (u.state === "unidentified") sub = esc(who(u.name));
+    else { tr = `<span class="pill warn">${fmt(u.seconds)} / ${fmt(u.limit)}</span>`; sub = `${esc(who(u.name))} · not assigned here`;
+           extra = bar(u.seconds, u.limit, "#FBBF24"); }
+    if (p.online && p.persons >= c.CROWD_COUNT) tr += `<span class="pill warn">${p.persons} people</span>`;
+    if (p.absent_alert) tr += `<span class="pill alert">Absent</span>`;
+    const assigned = p.assigned.length ? p.assigned.join(", ") : "nobody assigned";
+    const alerting = p.covered || (u && u.alert) || p.absent_alert;
+    const shot = p.online && p.has_thumb
+      ? `<img src="/api/pc/${encodeURIComponent(p.pc)}/thumb?ts=${Date.now()}" alt="${esc(p.pc)} camera view">`
+      : `<div class="placeholder"><svg class="icon"><use href="#i-camera"/></svg></div>`;
+    return `<article class="tile ${alerting ? "alerting" : ""} ${p.online ? "" : "offline"}" aria-label="${esc(p.pc)}">${shot}
+      <div class="tl">${tl}</div><div class="tr">${tr}</div>
+      <div class="bottom"><div class="name">${esc(p.pc)}${p.online ? `<time>${now}</time>` : ""}</div>
+        <div class="sub">${sub}</div><div class="sub" style="opacity:.65">${esc(assigned)}</div>${extra}</div></article>`;
+  }).join("");
+}
+
+/* ---- Feed: incidents, newest first ---- */
+function renderIncidents(s) {
+  const list = s.incidents;
+  if (knownIncidents && list.some(i => !knownIncidents.has(i.id) && i.status === "open")) beep();
+  knownIncidents = new Set(list.map(i => i.id));
+  const open = list.filter(i => i.status === "open").length, active = s.open_incidents;
+  $("#inc-summary").textContent = active ? `${active} need action` : "All clear";
+  $("#nav-count").style.display = active ? "block" : "none"; $("#nav-count").textContent = active;
+  const alarm = $("#alarm");
+  alarm.classList.toggle("calm", !open && active > 0);   // amber while the technician is on the way
+  if (open) { alarm.style.display = "flex"; alarm.classList.add("flash");
+    $("#alarm-text").textContent = `${open} new incident${open > 1 ? "s" : ""}: send the lab technician`; }
+  else if (active) { alarm.style.display = "flex"; alarm.classList.remove("flash");
+    $("#alarm-text").textContent = `Technician on the way: ${active} incident${active > 1 ? "s" : ""} in progress`; }
+  else alarm.style.display = "none";
+
+  if (!list.length) { $("#incidents").innerHTML = `<div class="empty" style="padding:12px 8px">No incidents. All clear.</div>`; return; }
+  const html = list.slice(0, 30).map(i => {
+    const img = i.closeup || i.scene;
+    const person = i.name && i.name !== "-" ? `${esc(who(i.name))} · ` : "";
+    const time = (i.time || "").split(" ")[1] || i.time;
+    let actions = "";
+    if (i.status === "open") actions = `<button class="primary" data-id="${i.id}" data-s="dispatched">Send technician</button>`;
+    if (i.status === "open" || i.status === "dispatched") actions +=
+      `<button class="secondary" data-id="${i.id}" data-s="resolved">Resolved</button>
+       <button class="secondary" data-id="${i.id}" data-s="false_alarm">False alarm</button>`;
+    const badge = i.status === "dispatched" ? `<span class="badge b-warn">Technician sent</span>`
+      : i.status === "resolved" ? `<span class="badge b-ok">Resolved</span>`
+      : i.status === "false_alarm" ? `<span class="badge b-off">False alarm</span>` : "";
+    return `<div class="incident ${i.status}">
+      <a href="/snapshots/${esc(i.scene)}" target="_blank" title="Open full camera view"><img src="/snapshots/${esc(img)}" alt="Evidence"></a>
+      <div><div class="top"><span class="type" style="color:${i.status === "open" ? "var(--bad)" : "inherit"}">${TYPE_LABEL[i.type] || esc(i.type)}</span><time title="${esc(i.time)}">${esc(time)}</time></div>
+        <div class="who">${person}${esc(i.pc)}</div>${badge}
+        ${actions ? `<div class="actions">${actions}</div>` : ""}</div></div>`;
+  }).join("");
+  if ($("#incidents").innerHTML !== html) {
+    $("#incidents").innerHTML = html;
+    $("#incidents").querySelectorAll("button[data-id]").forEach(b => b.onclick = async () => {
+      b.disabled = true;
+      await fetch(`/api/incidents/${b.dataset.id}`, {method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({status: b.dataset.s})});
+      poll(true);
+    });
+  }
+}
+
+/* ---- Students: new/changed photo folders are detected automatically ---- */
+let lastPendingKey = null;
+function renderEnrollPending(s) {
+  const pend = s.enroll_pending || [];
+  const badge = $("#students-count");
+  badge.style.display = pend.length ? "block" : "none"; badge.textContent = pend.length;
+  const box = $("#enroll-pending");
+  if (!pend.length) { box.style.display = "none"; }
+  else {
+    const label = {new: "new student", changed: "photos changed", removed: "folder removed"};
+    box.style.display = "flex";
+    box.querySelector(".txt").innerHTML = `<b>${pend.length} change${pend.length > 1 ? "s" : ""} found in the enrollment folder:</b> ` +
+      pend.map(x => `${esc(x.name)} (${label[x.status]}${x.photos != null ? `, ${x.photos} photo${x.photos === 1 ? "" : "s"}` : ""})`).join(", ");
+  }
+  const key = JSON.stringify(pend);
+  if (lastPendingKey !== null && key !== lastPendingKey && location.hash === "#students") loadEnrollment();
+  lastPendingKey = key;
+}
+
+function render(s) {
+  state = s;
+  const online = s.pcs.filter(p => p.online).length;
+  $("#status").textContent = `Live · ${online}/${s.pcs.length} cameras online · `;
+  $("#clock").textContent = new Date().toLocaleTimeString();
+  $("#upd-dot").style.background = "var(--ok)"; $("#live-dot").style.background = "var(--ok)";
+  $("#live-dot").title = `Live · ${online} cameras online`;
+  fillPcSelect();
+  renderFilters(s);
+  renderPCs(s);
+  renderIncidents(s);
+  renderEnrollPending(s);
+  const active = s.active_sessions.map(a => ({...a, live: true}));
+  $("#sessions").innerHTML = table(active.concat(s.sessions), [
+    ["Name", r => esc(r.name)], ["PC", r => esc(r.pc)],
+    ["Start", r => r.live ? `<span class="badge b-ok">in progress</span>` : esc(r.start)],
+    ["End", r => r.live ? "–" : esc(r.end)], ["Minutes", r => esc(r.minutes)],
+    ["Own PC?", r => (r.assigned_here === true || r.assigned_here === "True") ? "yes" : `<span style="color:var(--warn)">no</span>`]]);
+  $("#c-th").textContent = s.config.MATCH_THRESHOLD;
+  $("#c-gap").textContent = fmt(s.config.SESSION_GAP);
+  $("#rules").innerHTML = table([
+    {r: "Watchlisted (banned) person at a PC", v: fmt(s.config.WATCHLIST_SEC), a: "WATCHLIST"},
+    {r: "Unknown or unassigned person using a PC", v: fmt(s.config.UNAUTHORIZED_SEC), a: "UNAUTHORIZED"},
+    {r: "Student using someone else's PC", v: fmt(s.config.WRONG_SEAT_SEC), a: "WRONG PC"},
+    {r: "None of a PC's assigned students at it", v: fmt(s.config.ABSENT_SEC), a: "ABSENT"},
+    {r: `${s.config.CROWD_COUNT}+ people at one PC`, v: fmt(s.config.CROWD_SEC), a: "CROWDING"},
+    {r: "Camera covered, blank or blinded by light", v: fmt(s.config.TAMPER_SEC), a: "CAMERA BLOCKED"},
+    {r: "Face match needed (similarity)", v: s.config.MATCH_THRESHOLD, a: "–"}],
+    [["Situation", x => x.r], ["Threshold", x => `<b>${x.v}</b>`], ["Alert", x => x.a]]);
+  renderAssign(s);
+}
+
+async function poll(once) {
+  try { render(await (await fetch("/api/state")).json()); }
+  catch (e) {   // show that the data is stale instead of silently freezing
+    $("#status").textContent = "Disconnected: data may be out of date · ";
+    $("#upd-dot").style.background = "var(--bad)"; $("#live-dot").style.background = "var(--bad)";
+    $("#live-dot").title = "Disconnected";
+  }
+  if (once !== true) setTimeout(poll, 1000);
+}
+showPage();
+poll();
+listCams();
+
+/* ================= PHOTO TEST ================= */
+async function testPhoto(file) {
+  if (!file) return;
+  $("#photo-result").innerHTML = `<div class="empty">Analyzing…</div>`;
+  const fd = new FormData(); fd.append("photo", file);
+  const res = await (await fetch("/api/test_photo", {method: "POST", body: fd})).json();
+  if (res.error) { $("#photo-result").innerHTML = `<div class="empty">${esc(res.error)}</div>`; return; }
+  $("#photo-img").innerHTML = `<img src="${res.image}" alt="Analyzed photo">`;
+  if (!res.faces.length) {
+    $("#photo-result").innerHTML = `<div class="empty">No face found. Common reasons: side view, looking too far down, face blocked, or too dark.</div>`;
+    return;
+  }
+  const thPct = res.threshold * 100;
+  $("#photo-result").innerHTML = res.faces.map(f => {
+    const sims = Object.entries(f.per_person).map(([n, v]) => `<div class="sim"><span>${esc(n)}</span>
+      <div class="simbar"><div style="width:${Math.max(0, v) * 100}%;background:${v >= res.threshold ? "var(--ok)" : "var(--muted)"}"></div>
+      <div class="th" style="left:${thPct}%"></div></div><span>${v.toFixed(2)}</span></div>`).join("")
+      || `<div class="empty">Nobody is enrolled yet.</div>`;
+    const verdict = f.name === "unknown"
+      ? `<span class="badge b-bad">unknown</span> best score ${f.score.toFixed(2)} is below ${res.threshold}`
+      : `<span class="badge b-ok">${esc(f.name)}</span> best score ${f.score.toFixed(2)} ≥ ${res.threshold}`;
+    return `<div style="margin-bottom:18px"><div><b>Face #${f.n}</b> · ${verdict}</div>
+      <div class="muted">Face ${f.width}px wide · detection confidence ${f.det_score}</div>
+      <div style="margin-top:8px" class="muted">Similarity to each enrolled person (line = threshold):</div>${sims}</div>`;
+  }).join("");
+}
+$("#photo").onchange = e => testPhoto(e.target.files[0]);
+$("#drop").ondragover = e => e.preventDefault();
+$("#drop").ondrop = e => { e.preventDefault(); testPhoto(e.dataTransfer.files[0]); };
+
+/* ================= ENROLLMENT, WATCHLIST, ASSIGNMENTS ================= */
+function renderPeople(people, report) {
+  const byFile = {};
+  (report || []).forEach(e => e.photos.forEach(p => byFile[e.name + "/" + p.file.toLowerCase()] = p));
+  const names = Object.keys(people);
+  if (!names.length) { $("#people").innerHTML = `<div class="empty">No folders in enrollment/ yet.</div>`; return; }
+  const thumb = (n, f) => `/thumb/${encodeURIComponent(n)}/${encodeURIComponent(f)}`;
+  // One card per student with their best photo (chosen at enrollment); all photos only on request.
+  $("#people").innerHTML = `<div class="people-grid">${names.map(n => {
+    const ent = (report || []).find(e => e.name === n.toLowerCase());
+    const best = (ent && ent.best && people[n].includes(ent.best)) ? ent.best
+      : (people[n].find(f => /front/i.test(f)) || people[n][0]);
+    const watched = state && state.watchlist.includes(n.toLowerCase());
+    const weak = ent ? ent.photos.filter(p => p.status !== "ok").length : 0;
+    return `<div class="person">
+      ${best ? `<img loading="lazy" src="${thumb(n, best)}" alt="${esc(n)}">` : `<div class="noimg">no photo</div>`}
+      <div class="pname">${esc(n)}</div>
+      <div class="muted">${people[n].length} photo${people[n].length === 1 ? "" : "s"}${ent ? ` · ${ent.used} usable` : " · not enrolled yet"}</div>
+      ${weak ? `<div class="muted" style="color:var(--warn)">${weak} weak or skipped</div>` : ""}
+      <label class="watch" style="margin:4px 0 0"><input type="checkbox" class="watch-cb" data-name="${esc(n.toLowerCase())}" ${watched ? "checked" : ""}> Watchlist</label>
+      <button class="link show-all" data-name="${esc(n)}">Show all photos</button>
+    </div>`;
+  }).join("")}</div><div id="all-photos"></div>`;
+  $("#people").querySelectorAll(".show-all").forEach(b => b.onclick = () => {
+    const n = b.dataset.name, box = $("#all-photos");
+    if (box.dataset.name === n) { box.innerHTML = ""; box.dataset.name = ""; return; }   // click again to hide
+    box.dataset.name = n;
+    box.innerHTML = `<h3 style="font-size:14px;margin:16px 0 8px">All photos of ${esc(n)}
+        <button class="link" onclick="this.closest('#all-photos').innerHTML='';">Hide</button></h3>
+      <div class="thumbs">${people[n].map(f => {
+        const r = byFile[n.toLowerCase() + "/" + f.toLowerCase()];
+        return `<div class="thumb ${r ? r.status : ""}"><img loading="lazy" src="${thumb(n, f)}" alt="">
+          ${esc(f)}${r && r.note ? `<br><span style="color:${r.status === "skip" ? "var(--bad)" : "var(--warn)"}">${esc(r.note)}</span>` : ""}</div>`;
+      }).join("")}</div>`;
+  });
+  $("#people").querySelectorAll(".watch-cb").forEach(cb => cb.onchange = async () => {
+    const names = [...$("#people").querySelectorAll(".watch-cb")].filter(c => c.checked).map(c => c.dataset.name);
+    await fetch("/api/watchlist", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({names})});
+    $("#enroll-msg").textContent = "Watchlist saved.";
+  });
+}
+async function loadEnrollment() {
+  const d = await (await fetch("/api/enrollment")).json();
+  renderPeople(d.people, d.report);
+}
+$("#enroll-now").onclick = () => $("#enroll-btn").click();
+$("#enroll-btn").onclick = async () => {
+  const b = $("#enroll-btn"), now = $("#enroll-now");
+  b.disabled = now.disabled = true; $("#enroll-msg").textContent = "Enrolling… (can take a minute)";
+  const d = await (await fetch("/api/enroll", {method: "POST"})).json();
+  b.disabled = now.disabled = false; $("#enroll-msg").textContent = `Done: ${d.embeddings} face embeddings saved.`;
+  const p = await (await fetch("/api/enrollment")).json();
+  renderPeople(p.people, d.report);
+  await poll(true);   // clears the "changes found" notice
+};
+
+/* PCs page: one table row per PC — camera status, who is there now, assigned students (Edit), Remove. */
+function renderAssign(s) {
+  const pcs = [...new Set([...Object.keys(s.assignments), ...s.pcs.map(p => p.pc)])].sort();
+  if (!pcs.length) {
+    const empty = `<div class="empty">No PCs yet. Add one below, or start a camera on the <a href="#cameras">Cameras</a> page.</div>`;
+    if ($("#assign").innerHTML !== empty) $("#assign").innerHTML = empty;
+    return;
+  }
+  const info = Object.fromEntries(s.pcs.map(p => [p.pc, p]));
+  const rows = pcs.map(pc => {
+    const p = info[pc] || {};
+    const cam = !p.online ? `<span class="badge b-off">offline</span>`
+      : p.covered ? `<span class="badge b-bad">blocked</span>` : `<span class="badge b-ok">online</span>`;
+    const now = p.online && p.user
+      ? esc(p.user.name === "unidentified" ? "someone (face not visible)" : p.user.name === "unknown" ? "unknown person" : p.user.name)
+      : `<span class="muted">nobody</span>`;
+    return `<tr><td><b>${esc(pc)}</b></td><td>${cam}</td><td>${now}</td><td>${summaryHtml(pc, 4)}</td>
+      <td style="text-align:right"><button class="btn danger" data-del="${esc(pc)}" aria-label="Remove ${esc(pc)}">Remove</button></td></tr>`;
+  }).join("");
+  const html = `<table><thead><tr><th>PC</th><th>Camera</th><th>Using it now</th><th>Assigned students</th><th></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+  if ($("#assign").innerHTML.replace(/\s+/g, " ") !== html.replace(/\s+/g, " ")) $("#assign").innerHTML = html;
+}
+$("#assign").onclick = async e => {
+  const del = e.target.closest("[data-del]");
+  if (del && confirm(`Remove ${del.dataset.del} and its assignments?`)) {
+    await fetch("/api/pcs/" + encodeURIComponent(del.dataset.del), {method: "DELETE"});
+    await poll(true);
+  }
+};
+$("#new-pc").placeholder = "e.g. PC-03";
+$("#add-pc-form").onsubmit = async e => {
+  e.preventDefault();
+  const v = ($("#new-pc").value.trim() || nextPcName()).toUpperCase();
+  if (!/^[A-Z0-9_-]{1,20}$/.test(v)) {
+    $("#assign-msg").style.color = "var(--bad)";
+    $("#assign-msg").textContent = "Use letters, numbers and - only (e.g. PC-03).";
+    $("#new-pc").focus();
+    return;
+  }
+  $("#new-pc").value = "";
+  await createPc(v);
+  $("#assign-msg").style.color = "var(--ok)"; $("#assign-msg").textContent = `${v} added. Click Edit to assign students.`;
+};
+$("#new-pc").oninput = () => { $("#assign-msg").textContent = ""; };
+
+/* ================= IMAGE PROCESSING LAB (course lessons) ================= */
+function drawHist(canvas, hist) {
+  const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+  const max = Math.max(...hist, 1), bw = w / hist.length;
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--muted");
+  hist.forEach((v, i) => { const bh = v / max * (h - 2); ctx.fillRect(i * bw, h - bh, Math.max(1, bw - 1), bh); });
+}
+async function runLab() {
+  const file = $("#lab-photo").files[0];
+  if (!file) return;
+  $("#lab-auto").textContent = "Processing…";
+  const fd = new FormData(); fd.append("photo", file); fd.append("darken", $("#lab-dark").value / 100);
+  const res = await (await fetch("/api/process_photo", {method: "POST", body: fd})).json();
+  if (res.error) { $("#lab-auto").textContent = res.error; return; }
+  const a = res.auto;
+  $("#lab-auto").innerHTML = `Live system decision for this photo: brightness <b>${a.before.brightness}</b>, contrast <b>${a.before.contrast}</b> → ` +
+    (a.glare ? "<b>glare: camera would be reported as blinded</b>" : a.steps.length ? `<b>${esc(a.steps.join("; "))}</b>` : "<b>no correction needed</b>");
+  $("#lab").innerHTML = res.steps.map((s, i) => `<div class="lab-item">
+      <img src="${s.image}" alt="${esc(s.title)}">
+      <div class="t">${esc(s.title)}</div><div class="f">${esc(s.formula)}</div>
+      <div class="muted">${esc(s.note)}</div>
+      <div class="muted">brightness ${s.stats.brightness} · contrast ${s.stats.contrast} · range ${s.stats.min}–${s.stats.max}</div>
+      <canvas data-i="${i}" aria-label="Histogram of ${esc(s.title)}"></canvas></div>`).join("");
+  $("#lab").querySelectorAll("canvas").forEach(c => drawHist(c, res.steps[+c.dataset.i].hist));
+}
+$("#lab-photo").onchange = runLab;
+$("#lab-dark").oninput = () => { $("#lab-dark-val").textContent = $("#lab-dark").value + "%"; };
+$("#lab-dark").onchange = runLab;
+</script>
+</body>
+</html>

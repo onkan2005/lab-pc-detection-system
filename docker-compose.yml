@@ -1,0 +1,13 @@
+services:
+  pc-usage-monitor:
+    build: .
+    image: pc-usage-monitor:latest
+    container_name: pc-usage-monitor
+    # 127.0.0.1 only: the app is reachable from this computer, not from the network.
+    # (Browsers also only allow camera access on localhost or HTTPS.)
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - ./enrollment:/enrollment:ro     # student photo folders (read-only)
+      - ./detector/data:/data           # embeddings, assignments, logs, incident snapshots
+    restart: unless-stopped

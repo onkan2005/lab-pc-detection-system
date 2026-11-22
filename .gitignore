@@ -1,0 +1,54 @@
+# ---------------------------------------------------------------------------
+# Personal data: NEVER commit (student faces, names, logs, incident snapshots)
+# ---------------------------------------------------------------------------
+enrollment/*
+!enrollment/README.md
+detector/data/
+data/
+*.npz
+
+# Safety net: no photos or videos anywhere in the repo
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.HEIC
+*.webp
+*.bmp
+*.mp4
+*.avi
+*.mov
+
+# ---------------------------------------------------------------------------
+# AI tooling and AI-generated notes
+# ---------------------------------------------------------------------------
+.claude/
+SKILL.md
+**/SKILL.md
+design-system/
+CLAUDE.md
+CLAUDE.local.md
+
+# Course documents (instructor's signed requirements PDF)
+docs/
+
+# ---------------------------------------------------------------------------
+# Python, models, tooling
+# ---------------------------------------------------------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.pt
+*.onnx
+.insightface/
+runs/
+*.log
+.env
+
+# OS / editor
+*:Zone.Identifier
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

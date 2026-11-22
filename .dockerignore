@@ -1,0 +1,47 @@
+# Only the code goes into the image. Personal data is mounted at run time (see docker-compose.yml).
+
+# Personal data
+enrollment/
+detector/data/
+data/
+**/*.npz
+**/*.jpg
+**/*.jpeg
+**/*.png
+**/*.heic
+**/*.HEIC
+**/*.webp
+**/*.bmp
+**/*.mp4
+**/*.avi
+**/*.mov
+
+# AI tooling and AI-generated notes
+.claude/
+**/SKILL.md
+design-system/
+CLAUDE.md
+CLAUDE.local.md
+
+# Course documents
+docs/
+
+# Git, Python, models, tooling
+.git/
+.gitignore
+.dockerignore
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.py[cod]
+**/*.pt
+**/*.onnx
+**/runs/
+**/*.log
+.env
+**/*:Zone.Identifier
+.DS_Store
+.vscode/
+.idea/
+Dockerfile
+docker-compose.yml

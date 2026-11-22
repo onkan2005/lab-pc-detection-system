@@ -1,0 +1,82 @@
+"""Labels and colors for each YOLO-tracked person, plus drawing them on a frame
+(for evidence snapshots and the command-line version).
+
+The web page draws the same labels itself on top of the live video, using describe().
+"""
+import time
+
+import cv2
+
+from detection import UNIDENTIFIED
+
+COLORS = {"ok": "#1f9d55", "checking": "#f08c00", "alert": "#e03131", "bystander": "#868e96"}
+
+
+def describe(pc, result, tracker, t):
+    """For each person: what to show. Returns the people with "label", "color", "kind" and rule status added."""
+    out = []
+    for p in result["people"]:
+        name, tag = p["name"], f"#{p['id']}" if p["id"] is not None else "#?"
+        who = "Unknown person" if name == "unknown" else name
+        st = tracker.status(pc, name, t) if name != UNIDENTIFIED else \
+            {"state": "unidentified", "seconds": 0, "limit": None, "alert": False}
+        if name == UNIDENTIFIED:
+            label, kind = f"{tag} person - looking for face", "bystander"
+        elif not p["user"] and name not in tracker.watchlist:
+            label, kind = f"{tag} {who} (bystander)", "bystander"
+        elif st["state"] == "ok":
+            label, kind = f"{tag} {who} - assigned to {pc}", "ok"
+        elif st["state"] == "watchlist":
+            label, kind = f"{tag} WATCHLIST: {who}", "alert"
+        else:
+            if st["state"] == "wrong_seat":
+                problem = f"assigned to {', '.join(tracker.assigned_elsewhere(name))}, not {pc}"
+            else:
+                problem = f"not assigned to {pc}"
+            if st["alert"]:
+                label, kind = f"{tag} ALERT: {who} - {problem}", "alert"
+            else:
+                label, kind = f"{tag} {who} - {problem} ({st['seconds']}s/{st['limit']}s)", "checking"
+        out.append({**p, **st, "label": label, "color": COLORS[kind], "kind": kind})
+    return out
+
+
+def _bgr(hex_color):
+    h = hex_color.lstrip("#")
+    return int(h[4:6], 16), int(h[2:4], 16), int(h[0:2], 16)
+
+
+def draw_boxes(frame, people):
+    """Clean version for the camera wall thumbnails: only thin YOLO person boxes, no text."""
+    for p in people:
+        x1, y1, x2, y2 = p["box"]
+        cv2.rectangle(frame, (x1, y1), (x2, y2), _bgr(p["color"]), 2, cv2.LINE_AA)
+    return frame
+
+
+def draw(frame, pc, people, covered=False):
+    """Draws YOLO person boxes (+ face boxes) with labels and a camera header bar on the frame (in place)."""
+    h, w = frame.shape[:2]
+    if covered:
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 90), -1)
+        frame[:] = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
+        text = "CAMERA BLOCKED"
+        (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 2)
+        cv2.putText(frame, text, ((w - tw) // 2, h // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2, cv2.LINE_AA)
+    for p in people:
+        color = _bgr(p["color"])
+        x1, y1, x2, y2 = p["box"]
+        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 4 if p["kind"] == "alert" else 2)
+        if p.get("face_box"):
+            fx1, fy1, fx2, fy2 = p["face_box"]
+            cv2.rectangle(frame, (fx1, fy1), (fx2, fy2), color, 1)
+        (tw, th), _ = cv2.getTextSize(p["label"], cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
+        ty = max(y1, th + 36)
+        cv2.rectangle(frame, (x1, ty - th - 8), (x1 + tw + 8, ty), color, -1)
+        cv2.putText(frame, p["label"], (x1 + 4, ty - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.rectangle(frame, (0, 0), (w, 28), (0, 0, 0), -1)
+    cv2.circle(frame, (14, 14), 6, (0, 0, 230), -1)
+    cv2.putText(frame, f"REC  {pc} camera  {time.strftime('%Y-%m-%d %H:%M:%S')}  YOLO26 people: {len(people)}",
+                (28, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+    return frame
