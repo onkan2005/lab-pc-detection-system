@@ -22,7 +22,8 @@ from flask import Flask, Response, abort, jsonify, render_template, request, sen
 
 import config
 from detection import UNIDENTIFIED, analyze, new_camera
-from drawing import describe, draw, draw_boxes
+from reid import Gallery
+from drawing import blur_faces, describe, draw, draw_boxes
 from enroll import PHOTO_EXT, enroll
 import preprocess as pp
 from faces import Recognizer, detect_faces, load_face_app
@@ -64,6 +65,19 @@ class Engine:
         self.incidents = Incidents()
         self.stations = {}                     # pc -> latest result, thumbnail, timing
         self.last_report = load_json(config.ENROLL_REPORT_FILE, None)   # photo quality + best photo per person
+        self.next_cleanup = 0.0
+        self.cleanup()
+
+    def cleanup(self):
+        """Data retention: delete incidents, snapshots and log rows older than RETENTION_DAYS (hourly)."""
+        if not config.RETENTION_DAYS or time.monotonic() < self.next_cleanup:
+            return
+        self.next_cleanup = time.monotonic() + 3600
+        removed = self.incidents.prune(config.RETENTION_DAYS)
+        removed += prune_csv(config.SESSIONS_LOG, "start", config.RETENTION_DAYS)
+        removed += prune_csv(config.ALERTS_LOG, "time", config.RETENTION_DAYS)
+        if removed:
+            print(f"Retention: removed {removed} item(s) older than {config.RETENTION_DAYS} days")
 
     def now(self):
         return time.monotonic() - self.t0
@@ -71,6 +85,7 @@ class Engine:
     def process(self, pc, frame):
         """Runs detection + rules for one frame from one PC's camera. Returns what to draw."""
         with self.lock:
+            self.cleanup()
             t = self.now()
             started = time.monotonic()
             if pc not in self.stations:   # each PC camera gets its own YOLO26 tracker
@@ -85,10 +100,12 @@ class Engine:
             people = describe(pc, result, self.tracker, t)
 
             new_alerts = self.tracker.take_new_alerts()
-            for alert in new_alerts:   # evidence: fully labeled frame
-                self.incidents.add(alert, frame, draw(frame.copy(), pc, people, result["covered"]), people)
+            # Privacy: everything an admin sees or that is stored gets the faces pixelated first.
+            shown = blur_faces(frame.copy(), people) if config.PRIVACY_BLUR else frame
+            for alert in new_alerts:   # evidence: fully labeled frame (blurred before it is ever saved)
+                self.incidents.add(alert, shown, draw(shown.copy(), pc, people, result["covered"]), people)
             if t - st["thumb_t"] >= 1.0:   # camera wall: clean image, the page draws the labels on top
-                clean = draw_boxes(frame.copy(), people)
+                clean = draw_boxes(shown.copy(), people)
                 small = cv2.resize(clean, (480, round(clean.shape[0] * 480 / clean.shape[1])))
                 st["thumb"] = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 75])[1].tobytes()
                 st["thumb_t"] = t
@@ -128,6 +145,23 @@ def read_csv_tail(path, n=15):
         return []
     with open(path, newline="") as f:
         return list(csv.DictReader(f))[-n:][::-1]
+
+
+def prune_csv(path, column, days):
+    """Data retention for a log: drop rows whose timestamp column is older than `days`. Returns rows removed."""
+    if not path.exists():
+        return 0
+    cutoff = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time() - days * 86400))
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        fields, rows = reader.fieldnames, list(reader)
+    keep = [r for r in rows if not (r.get(column, "")[:4].isdigit() and r[column] < cutoff)]
+    if len(keep) != len(rows):
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            w.writerows(keep)
+    return len(rows) - len(keep)
 
 
 def enrolled_people():
@@ -177,7 +211,7 @@ def state():
         "active_sessions": active, "sessions": read_csv_tail(config.SESSIONS_LOG),
         "alerts_total": len(read_csv_tail(config.ALERTS_LOG, 10_000)),
         "config": {k: getattr(config, k) for k in [
-            "MATCH_THRESHOLD", "MIN_FACE_PX", "PRESENCE_GAP", "SESSION_GAP", "WATCHLIST_SEC", "TAMPER_SEC",
+            "MATCH_THRESHOLD", "MIN_FACE_PX", "PRIVACY_BLUR", "RETENTION_DAYS", "PRESENCE_GAP", "SESSION_GAP", "WATCHLIST_SEC", "TAMPER_SEC",
             "UNAUTHORIZED_SEC", "WRONG_SEAT_SEC", "ABSENT_SEC", "CROWD_COUNT", "CROWD_SEC"]},
     })
 
@@ -285,7 +319,7 @@ def run_enroll():
         report = enroll(engine.face_app)
         engine.recognizer = load_recognizer()
         for st in engine.stations.values():
-            st["cam"]["ids"].clear()   # recognize everyone again with the new photos
+            st["cam"]["gallery"] = Gallery()   # recognize everyone again with the new photos
     engine.last_report = report
     return jsonify({"report": report, "embeddings": len(engine.recognizer.names)})
 

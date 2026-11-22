@@ -22,14 +22,15 @@ from ultralytics import YOLO
 
 import config
 from preprocess import detail, enhance, stats
+from reid import Gallery, signature
 
 UNIDENTIFIED = "unidentified"   # a person YOLO sees whose face has not been recognized yet
 
 
 def new_camera():
     """State for one PC camera: its own YOLO26 model (so its tracker only follows this camera's
-    people) and the names given to its track IDs."""
-    return {"yolo": YOLO(config.YOLO_MODEL), "ids": {}}
+    people) and the gallery of people recently seen by it (re-identification by appearance)."""
+    return {"yolo": YOLO(config.YOLO_MODEL), "gallery": Gallery()}
 
 
 def shrink(frame):
@@ -39,6 +40,17 @@ def shrink(frame):
         return frame, 1.0
     s = config.DETECT_WIDTH / w
     return cv2.resize(frame, (config.DETECT_WIDTH, round(h * s))), 1 / s
+
+
+def sharpness(img, bbox):
+    """How sharp a face is: variance of the Laplacian (edge filter) of the face, resized to 112x112.
+    Sharp faces give large values (many strong edges); blurred / out-of-focus faces give small ones."""
+    x1, y1, x2, y2 = (int(v) for v in bbox)
+    crop = img[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
+    if crop.size == 0:
+        return 0.0
+    gray = cv2.resize(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), (112, 112))
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
 def find_face(img, person_box, face_app):
@@ -91,30 +103,39 @@ def analyze(frame, cam, face_app, recognizer):
                 "people": [], "user": None, "prep": prep}
     ids = det.boxes.id.int().tolist() if det.boxes.id is not None else [None] * len(boxes)
 
-    people = []
-    for k, (box, tid) in enumerate(zip(boxes, ids)):
-        key = tid if tid is not None else f"new{k}"
-        ident = cam["ids"].get(key)
+    gallery, people, taken = cam["gallery"], [], set()
+    # biggest boxes first, so the PC's user gets first pick when matching appearances
+    order = sorted(range(len(boxes)), key=lambda k: -(boxes[k][2] - boxes[k][0]) * (boxes[k][3] - boxes[k][1]))
+    for k in order:
+        box, tid = boxes[k], ids[k]
+        # 3b. re-identification: same track, or a recent person with the same clothes/body -> same person
+        sig = signature(small, box)
+        person = gallery.person_for(tid, sig, now, taken)
         # 4. face inside this person's box (cheap) -> recognize only when needed (ArcFace is the slow part)
         face = find_face(small, box, face_app)
-        if face is not None and (ident is None or now - ident["at"] >= config.RECOGNIZE_EVERY
-                                 or ident["name"] == UNIDENTIFIED):
+        if face is not None and (person["name"] in (None, "unknown") or now - person["at"] >= config.RECOGNIZE_EVERY):
             face_app.models["recognition"].get(small, face)
             name, score = recognizer.identify(face.normed_embedding)
-            ident = {"name": str(name), "score": float(score), "at": now}
-        if ident is None:
-            ident = {"name": UNIDENTIFIED, "score": 0.0, "at": now}
-        ident["seen"] = now
-        if tid is not None:
-            cam["ids"][tid] = ident
+            name = str(name)
+            known = person["name"] not in (None, "unknown")
+            clear = sharpness(small, face.bbox) >= config.FACE_SHARPNESS_MIN
+            if known and name == "unknown" and not clear:
+                person["at"] = now          # unclear face (blur, angle): keep who the clothes/track say it is
+            elif known and name != person["name"] and (name != "unknown" or clear):
+                # a clear face says this is someone else (e.g. same uniform): split into a new person
+                person = gallery.new_person(tid, sig, now, name, float(score))
+            else:
+                person.update(name=name, score=float(score), at=now, reid=False)
+        person["seen"] = now
+        taken.add(person["pid"])
         people.append({
-            "id": tid, "name": ident["name"], "score": round(ident["score"], 2), "user": False,
+            "id": person["pid"], "track": tid, "name": person["name"] or UNIDENTIFIED,
+            "score": round(person["score"], 2), "user": False,
+            "reid": bool(person.get("reid")) and face is None, "clothes": sig["color"],
             "box": [round(v * back) for v in box],
             "face_box": [round(float(v) * back) for v in face.bbox] if face is not None else None,
         })
-
-    # forget names of tracks that have been gone for a while
-    cam["ids"] = {t: v for t, v in cam["ids"].items() if now - v["seen"] < 30}
+    gallery.forget_old(now)
 
     # 3. the PC's user = the biggest (closest) YOLO person box
     user = None

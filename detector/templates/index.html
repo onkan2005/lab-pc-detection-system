@@ -727,6 +727,23 @@ class Station {
         ctx.fillText(`${d.covered_reason || "covered"} for ${d.covered_for}s`, rect.width / 2, rect.height / 2 + 26);
         ctx.textAlign = "left";
       }
+      if (state && state.config.PRIVACY_BLUR) {
+        // Privacy: cover each face (or head area if no face is visible) with a blurred copy of the video
+        const k = this.video.videoWidth / this.sentW;
+        for (const p of d.people) {
+          let [a, b, c, e] = p.face_box || p.box;
+          if (p.face_box) { const mx = (c - a) * 0.35, my = (e - b) * 0.35; a -= mx; b -= my; c += mx; e += my; }
+          else { const bw = c - a, bh = e - b, full = bh / Math.max(1, bw) > 1.8;
+                 a += 0.2 * bw; c -= 0.2 * bw; e = b + (full ? 0.25 : 0.6) * bh; }
+          a = Math.max(0, a); b = Math.max(0, b); c = Math.min(this.sentW, c); e = Math.min(this.sentH, e);
+          if (c - a < 2 || e - b < 2) continue;
+          ctx.save();
+          ctx.beginPath(); ctx.rect(ox + a * s, oy + b * s, (c - a) * s, (e - b) * s); ctx.clip();
+          ctx.filter = "blur(18px)";
+          ctx.drawImage(this.video, a * k, b * k, (c - a) * k, (e - b) * k, ox + a * s, oy + b * s, (c - a) * s, (e - b) * s);
+          ctx.restore();
+        }
+      }
       for (const p of d.people) {
         // YOLO26 person box (main box) + thin face box inside it
         const [x1, y1, x2, y2] = p.box;

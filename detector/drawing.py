@@ -18,6 +18,8 @@ def describe(pc, result, tracker, t):
     for p in result["people"]:
         name, tag = p["name"], f"#{p['id']}" if p["id"] is not None else "#?"
         who = "Unknown person" if name == "unknown" else name
+        if p.get("reid") and name not in (UNIDENTIFIED, "unknown"):
+            who += f" (by {p.get('clothes', '')} clothes)"   # face hidden: kept by appearance re-ID
         st = tracker.status(pc, name, t) if name != UNIDENTIFIED else \
             {"state": "unidentified", "seconds": 0, "limit": None, "alert": False}
         if name == UNIDENTIFIED:
@@ -44,6 +46,36 @@ def describe(pc, result, tracker, t):
 def _bgr(hex_color):
     h = hex_color.lstrip("#")
     return int(h[4:6], 16), int(h[2:4], 16), int(h[0:2], 16)
+
+
+def privacy_region(p, w, h):
+    """The area to hide for one person: the face box (with a margin), or the head area of the
+    YOLO person box when no face is visible."""
+    if p.get("face_box"):
+        x1, y1, x2, y2 = p["face_box"]
+        mx, my = 0.25 * (x2 - x1), 0.25 * (y2 - y1)
+        x1, y1, x2, y2 = x1 - mx, y1 - my, x2 + mx, y2 + my
+    else:
+        bx1, by1, bx2, by2 = p["box"]
+        bw, bh = bx2 - bx1, by2 - by1
+        full_body = bh / max(1, bw) > 1.8
+        x1, x2 = bx1 + 0.2 * bw, bx2 - 0.2 * bw
+        y1, y2 = by1, by1 + (0.25 if full_body else 0.6) * bh
+    return max(0, int(x1)), max(0, int(y1)), min(w, int(x2)), min(h, int(y2))
+
+
+def blur_faces(frame, people, block=18):
+    """Privacy: pixelate every person's face/head in place. Pixelation (shrink, then enlarge without
+    smoothing) throws the detail away, unlike a light blur."""
+    h, w = frame.shape[:2]
+    for p in people:
+        x1, y1, x2, y2 = privacy_region(p, w, h)
+        if x2 - x1 < 2 or y2 - y1 < 2:
+            continue
+        roi = frame[y1:y2, x1:x2]
+        small = cv2.resize(roi, (max(1, (x2 - x1) // block), max(1, (y2 - y1) // block)), interpolation=cv2.INTER_AREA)
+        frame[y1:y2, x1:x2] = cv2.resize(small, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)
+    return frame
 
 
 def draw_boxes(frame, people):

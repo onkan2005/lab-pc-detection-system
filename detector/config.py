@@ -34,6 +34,18 @@ DETECT_WIDTH = 640                 # frames are shrunk to this width before dete
 # Recognition (ArcFace) is the slowest step. A face that stays in the same spot keeps its name
 # and is only re-recognized every RECOGNIZE_EVERY seconds.
 RECOGNIZE_EVERY = 1.0
+# Re-identification by appearance (reid.py): when YOLO starts a new track (person left the frame,
+# was blocked, turned away), match clothing colors + body dimensions with people seen recently,
+# so the same person keeps their number and name instead of being counted as someone new.
+REID_WINDOW_SEC = 300              # remember people's appearance this long (clothes don't change mid-session)
+# Thresholds measured on the enrolled photos of 2 people (re-check after the whole group is enrolled):
+#   clothes + body: same person 0.44..0.84 (median 0.68), different people <= 0.42
+#   clothes only:   same person 0.18..0.84 (median 0.53), different people <= 0.16
+REID_MIN_SIM = 0.60                # clothes + body similarity (0..1) needed to say "same person"
+REID_SPLIT_SIM = 0.25              # same YOLO track but CLOTHES similarity below this = a different person sat down
+FACE_SHARPNESS_MIN = 40            # variance of the Laplacian of the face (sharp faces measured >= 101,
+                                   # blurred <= 6). An unsharp face that matches nobody does not override
+                                   # a known person whose clothes still match (motion blur, out of focus)
 FACE_TRACK_IOU = 0.4               # same face as last frame if the boxes overlap this much
 
 # --- Preprocessing (course lessons: brightness/contrast, negative/normalization, histogram equalization) ---
@@ -50,6 +62,13 @@ ENHANCE_METHOD = "brightness"  # "brightness" (Lesson 1) | "normalize" (Lesson 2
 # --- Face recognition ---
 MATCH_THRESHOLD = 0.45   # cosine similarity; below this the face is "unknown"
 MIN_FACE_PX = 50         # faces narrower than this (in the 640-wide frame) are ignored: too far away
+
+# --- Privacy ---
+# Faces are blurred (pixelated) in everything an admin sees: the camera wall, incident snapshots
+# (saved already blurred, the sharp image is never stored) and the live camera view. The name label
+# still tells the technician who it is. If no face is visible, the head area is blurred instead.
+PRIVACY_BLUR = True
+RETENTION_DAYS = 30       # incidents, snapshots and logs older than this are deleted automatically (0 = keep)
 
 # --- Thresholds (seconds) ---
 PRESENCE_GAP = 3          # not seen for this long = left the PC (for alert timers)

@@ -15,6 +15,7 @@ Final project for ICE 415 – Digital Image Processing.
 - [Run without Docker (Python)](#run-without-docker-python)
 - [Enroll students](#enroll-students)
 - [Reset the data (keep the photos)](#reset-the-data-keep-the-photos)
+- [Same person, not a new one (re-identification)](#same-person-not-a-new-one-re-identification)
 - [Using the app](#using-the-app)
 - [Cameras (webcam, phone, two cameras)](#cameras)
 - [Configuration](#configuration)
@@ -225,6 +226,10 @@ after changing them):
 | `TAMPER_SEC` | 5 | camera covered / blank / blinded → alert after |
 | `MATCH_THRESHOLD` | 0.45 | face similarity needed to count as a student |
 | `ENHANCE_METHOD` | `brightness` | low-light correction: `brightness`, `normalize`, `equalize`, `clahe` |
+| `REID_WINDOW_SEC` | 300 | how long a camera remembers people's clothes/body for re-identification |
+| `REID_MIN_SIM`, `REID_SPLIT_SIM` | 0.60, 0.25 | appearance similarity to call it the same person / a different person on the same track |
+| `PRIVACY_BLUR` | `True` | pixelate faces in the camera wall, incident snapshots and live view |
+| `RETENTION_DAYS` | 30 | delete finished incidents, snapshots and log rows older than this (0 = keep) |
 
 For a demo, lower the alert times (e.g. 10 seconds) so you don't have to wait.
 
@@ -255,10 +260,47 @@ scored lowest because they also amplify sensor noise. Re-run it after everyone i
 
 ---
 
+## Same person, not a new one (re-identification)
+
+YOLO's tracker gives a person a **new track ID** whenever they leave the frame, are blocked or turn
+away. Without help, the same student would keep "appending" as Person #1, #2, #3… and lose their name
+while their face is hidden. `reid.py` keeps a **short-term appearance memory** per camera:
+
+- **Clothing colors**: hue/saturation histograms (HSV) of the shirt, and the pants when the whole body is
+  visible. HSV separates color from brightness, so lighting changes matter less. The face area is left out.
+- **Body dimensions**: proportions (height/width) and size of the YOLO person box.
+- A new track that looks like someone seen in the last 5 minutes **is** that person: same number, same
+  name. The video label then says e.g. `labisores (by blue clothes)`.
+- If the tracker hands a seat to the **next** person (it links boxes by position), the clothes no longer
+  match and that is counted as a different person.
+- **The face always wins.** Appearance is only short-term (clothes change every day). A clear face that
+  says it is someone else splits them apart (e.g. same school uniform). A **blurred or turned face**
+  (measured with image sharpness, the variance of the Laplacian) does not override who the clothes say it is.
+
+Tested with two enrolled students: the tracker produced 4 different track IDs, re-identification
+merged them into the right 2 people and kept the names while faces were blurred. Thresholds are in
+`config.py` (`REID_*`, `FACE_SHARPNESS_MIN`); re-check them after the whole group is enrolled.
+
+---
+
 ## Privacy
 
-- Face photos, embeddings, names, logs and snapshots are personal data. They stay in `enrollment/` and
-  `detector/data/`, which are **excluded from Git and from the Docker image** (`.gitignore`, `.dockerignore`).
+- **Faces are blurred for admins.** With `PRIVACY_BLUR = True` (default), faces are pixelated in the camera
+  wall, in incident snapshots (blurred **before** saving, so the sharp image is never stored) and in the live
+  camera view. If no face is visible, the head area is blurred. The name label still tells the technician
+  who it is. Tested: the face detector cannot find a face in the stored snapshots or thumbnails.
+- **Automatic deletion.** Finished incidents, their snapshots and log rows older than `RETENTION_DAYS`
+  (default 30) are deleted automatically; open incidents are kept until closed.
+- **Not committed, not in the image.** Photos, embeddings, names, logs and snapshots stay in `enrollment/`
+  and `detector/data/`, which are excluded from Git and Docker (`.gitignore`, `.dockerignore`). The app is
+  only reachable from the computer it runs on.
+- **What about hashing?** Hashing fits some data, not all of it:
+  - Face **embeddings cannot be hashed**: matching measures how close two faces are, and a hash destroys
+    that closeness. The right protection is **encryption at rest** and access control.
+  - **Names in logs can be pseudonymized** with a keyed hash (HMAC), so a leaked log shows codes instead of names.
+  - **Photos** are only needed to build the embeddings; they can be deleted after enrollment.
+  These are possible next steps, not implemented yet. The app also has **no admin login** yet; anyone at the
+  computer running it can open the console.
 - Get each person's consent before enrolling them (Philippine Data Privacy Act, RA 10173).
 - The InsightFace pretrained models are licensed for non-commercial research use, which fits a
   school project.
@@ -273,7 +315,8 @@ scored lowest because they also amplify sensor noise. Re-run it after everyone i
 └── detector/
     ├── web.py                       web server (Flask) + API
     ├── templates/index.html         the web app (single page)
-    ├── detection.py                 per-frame pipeline: preprocessing → YOLO26 track → face → ArcFace
+    ├── detection.py                 per-frame pipeline: preprocessing → YOLO26 track → re-ID → face → ArcFace
+    ├── reid.py                      re-identification by clothing colors + body dimensions
     ├── preprocess.py                course lessons: brightness/contrast, negative, normalization, equalization
     ├── faces.py                     face detection + recognition (cosine similarity)
     ├── tracker.py                   usage sessions and alert rules

@@ -63,3 +63,18 @@ class Incidents:
     def open_count(self):
         with self.lock:
             return sum(i["status"] in ("open", "dispatched") for i in self.items)
+
+    def prune(self, days):
+        """Data retention: delete finished incidents (and their snapshots) older than `days`.
+        Open / in-progress incidents are kept until the technician closes them."""
+        cutoff_ms = (time.time() - days * 86400) * 1000
+        with self.lock:
+            old = [i for i in self.items if int(i["id"]) < cutoff_ms and i["status"] in ("resolved", "false_alarm")]
+            for item in old:
+                for key in ("closeup", "scene"):
+                    if item.get(key):
+                        (config.SNAPSHOT_DIR / item[key]).unlink(missing_ok=True)
+            if old:
+                self.items = [i for i in self.items if i not in old]
+                self._save()
+            return len(old)
