@@ -227,7 +227,7 @@ after changing them):
 | `MATCH_THRESHOLD` | 0.45 | face similarity needed to count as a student |
 | `ENHANCE_METHOD` | `brightness` | low-light correction: `brightness`, `normalize`, `equalize`, `clahe` |
 | `REID_WINDOW_SEC` | 300 | how long a camera remembers people's clothes/body for re-identification |
-| `REID_MIN_SIM`, `REID_SPLIT_SIM` | 0.60, 0.25 | appearance similarity to call it the same person / a different person on the same track |
+| `REID_MIN_SIM`, `REID_SPLIT_SIM` | 0.70, 0.25 | appearance similarity to call it the same person / a different person on the same track |
 | `PRIVACY_BLUR` | `True` | pixelate faces in the camera wall, incident snapshots and live view |
 | `RETENTION_DAYS` | 30 | delete finished incidents, snapshots and log rows older than this (0 = keep) |
 

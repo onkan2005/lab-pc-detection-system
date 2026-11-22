@@ -39,10 +39,13 @@ RECOGNIZE_EVERY = 1.0
 # so the same person keeps their number and name instead of being counted as someone new.
 REID_WINDOW_SEC = 300              # remember people's appearance this long (clothes don't change mid-session)
 UNNAMED_FORGET_SEC = 30            # people never identified (unknown) are forgotten sooner
-# Thresholds measured on the enrolled photos of 2 people (re-check after the whole group is enrolled):
-#   clothes + body: same person 0.44..0.84 (median 0.68), different people <= 0.42
-#   clothes only:   same person 0.18..0.84 (median 0.53), different people <= 0.16
-REID_MIN_SIM = 0.60                # clothes + body similarity (0..1) needed to say "same person"
+# Thresholds measured on the enrolled photos of 3 people (re-check after the whole group is enrolled):
+#   clothes + body: same person 0.44..0.84 (median 0.68), different people up to 0.67 (median 0.40)
+#   clothes only:   same person 0.18..0.84 (median 0.53), different people up to 0.52 (median 0.13)
+# The ranges overlap (two students can wear similar colors), so "same person" is set ABOVE every
+# different-person score: wrongly merging two people (handing one student's name to another) is worse
+# than wrongly splitting one (shown as "Unknown person" until the face is seen again).
+REID_MIN_SIM = 0.70                # clothes + body similarity (0..1) needed to say "same person"
 REID_SPLIT_SIM = 0.25              # same YOLO track but CLOTHES similarity below this = a different person sat down
 FACE_SHARPNESS_MIN = 40            # variance of the Laplacian of the face (sharp faces measured >= 101,
                                    # blurred <= 6). An unsharp face that matches nobody does not override
