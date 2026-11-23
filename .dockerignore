@@ -15,6 +15,10 @@ data/
 **/*.mp4
 **/*.avi
 **/*.mov
+**/*.webm
+**/*.mkv
+**/*.m4v
+test_videos/
 
 # AI tooling and AI-generated notes
 .claude/

@@ -147,6 +147,11 @@ class Gallery:
             # inherit the previous person's track. If the clothes/body clearly changed, it is someone else.
             if clothes_similarity(p["sig"], sig) >= config.REID_SPLIT_SIM:
                 p["sig"] = blend(p["sig"], sig)   # "reid" stays until a face confirms the name again
+                if p["name"] is None:             # face never seen: maybe a named person whose box was lost
+                    named = self._takeover(p, sig, now, taken)
+                    if named is not None:
+                        self.tracks[track_id] = named["pid"]
+                        return named
                 return p
             self.tracks.pop(track_id, None)
         best, best_s = None, 0.0
@@ -162,6 +167,26 @@ class Gallery:
                 self.tracks[track_id] = best["pid"]
             return best
         return self.new_person(track_id, sig, now)
+
+    def _takeover(self, p, sig, now, taken):
+        """YOLO sometimes puts a second, short-lived box on the same person (e.g. around the head and a
+        raised hand). That box gets its own nameless identity, and if the main box then disappears the
+        person is left nameless. So a person whose face was NEVER seen takes over a named person who has
+        been out of view for REID_TAKEOVER_SEC (so two people in view never swap names) and whose clothes
+        and body match. A person whose face was seen but not recognized (a stranger) is never renamed."""
+        best, best_s = None, 0.0
+        for q in self.people.values():
+            if (q is p or q["pid"] in taken or q["name"] in (None, "unknown")
+                    or not config.REID_TAKEOVER_SEC <= now - q["seen"] <= config.REID_WINDOW_SEC):
+                continue
+            s = similarity(q["sig"], sig)
+            if s > best_s:
+                best, best_s = q, s
+        if best is None or best_s < config.REID_MIN_SIM:
+            return None
+        del self.people[p["pid"]]
+        best["sig"], best["reid"], best["reid_sim"] = blend(best["sig"], sig), True, round(best_s, 2)
+        return best
 
     def new_person(self, track_id, sig, now, name=None, score=0.0):
         pid = 1

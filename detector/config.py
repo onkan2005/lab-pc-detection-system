@@ -47,6 +47,7 @@ UNNAMED_FORGET_SEC = 30            # people never identified (unknown) are forgo
 # than wrongly splitting one (shown as "Unknown person" until the face is seen again).
 REID_MIN_SIM = 0.70                # clothes + body similarity (0..1) needed to say "same person"
 REID_SPLIT_SIM = 0.25              # same YOLO track but CLOTHES similarity below this = a different person sat down
+REID_TAKEOVER_SEC = 1.0          # a nameless box may take over a named person only after they were unseen this long
 FACE_SHARPNESS_MIN = 40            # variance of the Laplacian of the face (sharp faces measured >= 101,
                                    # blurred <= 6). An unsharp face that matches nobody does not override
                                    # a known person whose clothes still match (motion blur, out of focus)

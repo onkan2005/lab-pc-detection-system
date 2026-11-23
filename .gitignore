@@ -18,6 +18,11 @@ data/
 *.mp4
 *.avi
 *.mov
+*.webm
+*.mkv
+*.m4v
+# Test videos (public samples or your own recordings) and the annotated results
+test_videos/
 
 # ---------------------------------------------------------------------------
 # AI tooling and AI-generated notes

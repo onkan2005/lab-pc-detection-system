@@ -243,6 +243,18 @@ It shrinks every enrolled photo so the face is 160 px (close) down to 24 px (far
 | Recognized correctly | 97% | 97% | 97% | 90% | 69% |
 | Wrong person | 0 | 0 | 0 | 0 | 0 |
 
+**Test on a real video** (does a person keep their name when the face is gone?):
+
+```bash
+python evaluate_video.py ../test_videos/my_clip.mp4 --expect juan,maria       # your own recording
+python evaluate_video.py ../test_videos/faceocc2.webm --enroll tester          # a public sample, person enrolled temporarily
+```
+
+It runs every frame through the same pipeline as the app and saves an annotated video plus a CSV in
+`test_videos/` (ignored by Git and Docker). On OpenCV's `faceocc2` sample with the face covered for 20 s and
+the person leaving and coming back: **95% of the frames without any visible face still had the right name**
+(by YOLO tracking or by clothes), and no frame ever had a wrong name.
+
 Turned faces (left/right) were recognized at every size; looking down failed most when far away. Faces
 narrower than about 32 px (a person across a big room on a 720p camera) are unreliable: use a
 1080p camera or put it closer.
@@ -365,6 +377,7 @@ merged them into the right 2 people and kept the names while faces were blurred.
     ├── reset.py                     wipes app data, keeps photos, re-enrolls
     ├── evaluate_lighting.py         low-light experiment
     ├── evaluate_cctv.py             head pose × distance recognition test
+    ├── evaluate_video.py            real-video test: is the name kept when the face is gone?
     ├── monitor.py, find_camera.py   command-line version and camera finder
     ├── config.py                    all settings
     └── data/                        runtime data (not committed)
