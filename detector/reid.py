@@ -146,8 +146,7 @@ class Gallery:
             # The tracker links boxes by POSITION, so the next person who sits in the same spot can
             # inherit the previous person's track. If the clothes/body clearly changed, it is someone else.
             if clothes_similarity(p["sig"], sig) >= config.REID_SPLIT_SIM:
-                p["sig"] = blend(p["sig"], sig)
-                p["reid"] = False
+                p["sig"] = blend(p["sig"], sig)   # "reid" stays until a face confirms the name again
                 return p
             self.tracks.pop(track_id, None)
         best, best_s = None, 0.0

@@ -63,6 +63,16 @@ GLARE_MEAN = 235          # mean intensity above this = over-exposed / camera bl
 # second, and histogram equalization / CLAHE scored lowest because they also amplify sensor noise.
 ENHANCE_METHOD = "brightness"  # "brightness" (Lesson 1) | "normalize" (Lesson 2) | "equalize" (Lesson 3) | "clahe"
 
+# --- CCTV (room camera: high, far away, many people) ---
+# Faces are much smaller than at a PC webcam, so frames are kept larger and the detectors look
+# at a bigger input (slower, but small faces are found). Measured with evaluate_cctv.py.
+CCTV_DETECT_WIDTH = 1280
+CCTV_YOLO_IMGSZ = 960
+CCTV_FACE_DET_SIZE = 960             # whole-frame face detector size (evaluate_cctv.py)
+CCTV_MIN_FACE_PX = 24             # smaller faces are not recognized reliably (see evaluate_cctv.py)
+CCTV_UNKNOWN_SEC = 30             # an unknown person in the room this long -> incident
+CCTV_LOG_GAP = 60                 # not seen for this long = left the room (written to the room log)
+
 # --- Face recognition ---
 MATCH_THRESHOLD = 0.45   # cosine similarity; below this the face is "unknown"
 MIN_FACE_PX = 50         # faces narrower than this (in the 640-wide frame) are ignored: too far away

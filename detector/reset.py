@@ -1,8 +1,8 @@
 """Reset the app's data without touching the student photos, then re-enroll everyone.
 
 Deletes (inside the data folder):
-  PCs and assignments, watchlist, incidents + snapshots, usage and alert logs,
-  face embeddings and the enrollment report, lighting experiment results.
+  PCs and assignments, watchlist, incidents + snapshots, usage, room (CCTV) and alert logs,
+  face embeddings and the enrollment report, lighting and CCTV test results.
 Keeps:
   enrollment/<name>/ photos  (they are enrolled again automatically)
 

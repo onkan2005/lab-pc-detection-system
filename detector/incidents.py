@@ -27,7 +27,8 @@ class Incidents:
         """Store an alert with a close-up of the person (if any) and the full annotated camera view."""
         iid = f"{int(time.time() * 1000)}"
         files = {}
-        person = next((p for p in people if p["name"] == alert["name"]), None)
+        pid = alert.get("pid")
+        person = next((p for p in people if (pid is not None and p["id"] == pid) or p["name"] == alert["name"]), None)
         if person is not None:
             h, w = raw_frame.shape[:2]
             x1, y1, x2, y2 = person["face_box"] or person["box"]   # face if visible, else the YOLO person box

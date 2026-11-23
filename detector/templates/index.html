@@ -260,6 +260,7 @@
   <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-cctv" viewBox="0 0 24 24"><path d="M3 7l13 4-2 5L2 12z"/><path d="M16 11l4-1 1 3-4 1"/><path d="M6 14v6M3 20h6"/></symbol>
   <symbol id="i-bell-off" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 9.3-5M18 8c0 7 3 9 3 9H9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0M3 3l18 18"/></symbol>
 </svg>
 
@@ -269,6 +270,7 @@
     <nav class="nav" aria-label="Main">
       <a href="#overview" data-page="overview" data-tip="Overview" aria-label="Overview"><svg class="icon"><use href="#i-overview"/></svg><span class="label">Overview</span><span class="count" id="nav-count" style="display:none"></span></a>
       <a href="#cameras" data-page="cameras" data-tip="Cameras" aria-label="Cameras"><svg class="icon"><use href="#i-camera"/></svg><span class="label">Cameras</span></a>
+      <a href="#cctv" data-page="cctv" data-tip="CCTV (room)" aria-label="CCTV room camera"><svg class="icon"><use href="#i-cctv"/></svg><span class="label">CCTV</span><span class="count" id="cctv-count" style="display:none"></span></a>
       <a href="#students" data-page="students" data-tip="Students" aria-label="Students"><svg class="icon"><use href="#i-users"/></svg><span class="label">Students</span><span class="count" id="students-count" style="display:none"></span></a>
       <a href="#pcs" data-page="pcs" data-tip="PCs" aria-label="PCs"><svg class="icon"><use href="#i-monitor"/></svg><span class="label">PCs</span></a>
       <a href="#help" data-page="help" data-tip="How it works" aria-label="How it works"><svg class="icon"><use href="#i-help"/></svg><span class="label">How it works</span></a>
@@ -318,6 +320,51 @@
         <span><span class="swatch" style="background:#868e96"></span>Bystander / face not visible</span>
       </div>
       <div class="stations" id="stations"></div>
+    </section>
+
+    <!-- CCTV: one room camera, many people, far away -->
+    <section class="page" id="page-cctv" aria-labelledby="h-cctv">
+      <div class="page-head">
+        <div><h1 id="h-cctv">CCTV room camera</h1>
+          <p>A camera high in a corner that watches the whole lab. Everyone in view is found by YOLO26 and named from their face;
+            a person who turns away keeps their name by their clothes and body (re-identification).</p></div>
+      </div>
+      <div class="legend" style="margin-bottom:14px">
+        <span><span class="swatch" style="background:#1f9d55"></span>Enrolled student</span>
+        <span><span class="swatch" style="background:#f08c00"></span>Unknown / face not visible, timer running</span>
+        <span><span class="swatch" style="background:#e03131"></span>Alert (watchlist or unknown too long)</span>
+      </div>
+      <div class="card station" id="cctv-station">
+        <div class="controls">
+          <label class="field">Camera name <input type="text" class="camname" value="ROOM-1" maxlength="20" size="10"></label>
+          <label class="field">Camera device <select class="cam"><option value="">Default camera</option></select></label>
+          <button class="btn primary go">Start CCTV</button>
+        </div>
+        <div class="station-body">
+          <div class="stage"><video playsinline muted></video><canvas></canvas>
+            <div class="idle">Point a camera at the room (e.g. the phone with Iriun on a high shelf), choose it, then click Start CCTV.</div></div>
+          <div class="info">
+            <div class="muted" style="font-weight:600">People in view</div>
+            <div class="inview"><div class="empty">Camera not started.</div></div>
+            <div class="muted imgq" style="margin-top:10px"></div>
+            <div class="muted perf" style="margin-top:6px"></div>
+          </div>
+        </div>
+      </div>
+      <div class="grid" style="margin-top:16px">
+        <div class="card"><h2>In the room <span class="muted" id="room-sub"></span></h2><div class="table-wrap" id="room-now"></div></div>
+        <div class="card"><h2>Room log <span class="muted">(visits that ended)</span></h2><div class="table-wrap" id="room-log"></div></div>
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h2>Does it work when people don't look at the camera?</h2>
+        <p class="muted" style="margin-top:-6px">Measured with <code>python evaluate_cctv.py</code>: every enrolled photo is shrunk so the face is
+          160 px (close) down to 24 px (far, like a CCTV across the room), placed in a 1280×720 frame and recognized
+          against the <i>other</i> photos. Each cell: correct / unknown / wrong person / no face found.</p>
+        <div class="table-wrap" id="cctv-test"><div class="empty">Not measured yet. Run <code>python evaluate_cctv.py</code>.</div></div>
+        <p class="muted" style="margin-bottom:0">Back of the head: no face, so nobody can be recognized from it. Such a person is named only if their
+          face was seen earlier and their clothes and body still match (shown as "by … clothes"); otherwise they stay
+          "Person – face not visible" and, after <span class="unk-sec">30</span>s in the room, raise an "unknown in the room" incident.</p>
+      </div>
     </section>
 
     <!-- STUDENTS -->
@@ -455,13 +502,14 @@ const store = {
 let state = null;
 
 /* ---- Navigation: one page per URL hash (#overview, #cameras, …) so links, refresh and Back all work ---- */
-const PAGES = ["overview", "cameras", "students", "pcs", "help"];
+const PAGES = ["overview", "cameras", "cctv", "students", "pcs", "help"];
 function showPage() {
   const page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
   document.querySelectorAll(".page").forEach(s => s.classList.toggle("active", s.id === "page-" + page));
   document.querySelectorAll(".nav a").forEach(a => a.dataset.page === page ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   document.title = `${document.querySelector(".nav a[aria-current] .label").textContent} · PC Usage Monitor`;
   if (page === "students") loadEnrollment();
+  if (page === "cctv") loadCctvTest();
   window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", showPage);
@@ -485,6 +533,7 @@ async function listCams() {
   if (!navigator.mediaDevices) return;
   cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
   stations.forEach(s => s.fillCams());
+  if (typeof cctv !== "undefined") cctv.fillCams();
 }
 
 function pcOptions() {
@@ -764,11 +813,11 @@ class Station {
       ctx.fillStyle = "rgba(0,0,0,.6)"; ctx.fillRect(0, 0, rect.width, 24);
       ctx.fillStyle = "#e03131"; ctx.beginPath(); ctx.arc(12, 12, 5, 0, 7); ctx.fill();
       ctx.fillStyle = "#fff"; ctx.font = "12px system-ui, sans-serif";
-      ctx.fillText(`REC  ${d.pc} camera  ${new Date().toLocaleTimeString()}  ·  YOLO26 people: ${d.persons}`, 24, 16);
+      ctx.fillText(`REC  ${d.title || d.pc + " camera"}  ${new Date().toLocaleTimeString()}  ·  YOLO26 people: ${d.persons}`, 24, 16);
       if (d.people.some(p => p.kind === "alert")) {
         ctx.fillStyle = "#e03131"; ctx.fillRect(0, rect.height - 30, rect.width, 30);
         ctx.fillStyle = "#fff"; ctx.font = "600 14px system-ui, sans-serif"; ctx.textAlign = "center";
-        ctx.fillText(`ALERT: not allowed on ${d.pc}. Technician notified`, rect.width / 2, rect.height - 10);
+        ctx.fillText(d.banner || `ALERT: not allowed on ${d.pc}. Technician notified`, rect.width / 2, rect.height - 10);
         ctx.textAlign = "left";
       }
     }
@@ -822,9 +871,134 @@ $("#add-station").onclick = async () => {
 for (let k = 0, n = Math.max(1, Math.min(4, +store.get("stations") || 1)); k < n; k++) addStation();
 if (navigator.mediaDevices) navigator.mediaDevices.addEventListener("devicechange", listCams);
 
+/* ================= CCTV: one room camera, everyone in view ================= */
+/* Reuses the Station overlay painter; sends bigger frames (1280 wide) so far-away faces are still found. */
+class Cctv {
+  constructor(el) {
+    this.el = el; this.q = s => el.querySelector(s); this.i = "cctv";
+    this.on = false; this.last = null; this.stream = null; this.sentW = 0; this.sentH = 0;
+    this.grab = document.createElement("canvas");
+    this.video = this.q("video"); this.overlay = this.q("canvas");
+    const name = store.get("cctv-name"); if (name) this.q(".camname").value = name;
+    this.q(".camname").onchange = () => store.set("cctv-name", this.q(".camname").value.trim().toUpperCase());
+    this.q(".cam").onchange = () => store.set("cctv-cam", this.q(".cam").value);
+    this.q(".go").onclick = () => this.on ? this.stop() : this.start();
+  }
+  get name() { return this.q(".camname").value.trim().toUpperCase(); }
+  fillCams() {
+    if (!cameras.length) return;
+    const sel = this.q(".cam"), want = sel.value || store.get("cctv-cam");
+    sel.innerHTML = cameras.map((c, k) => `<option value="${esc(c.deviceId)}">${esc(c.label || "Camera " + (k + 1))}</option>`).join("");
+    if (want && cameras.some(c => c.deviceId === want)) sel.value = want;
+  }
+  async start() {
+    const idle = this.q(".idle");
+    if (!/^[A-Z0-9_-]{1,20}$/.test(this.name)) { idle.textContent = "Camera name: letters, numbers, - and _ only."; return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      idle.textContent = "The browser blocks the camera on this address. Open http://localhost:8765 instead."; return;
+    }
+    const id = this.q(".cam").value;
+    const clash = stations.find(s => s.on && s.q(".cam").value === id);
+    if (clash) { idle.textContent = `That camera is used by PC camera ${clash.i + 1}. Stop it there or pick another.`; return; }
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({video: {deviceId: id ? {exact: id} : undefined,
+        width: {ideal: 1920}, height: {ideal: 1080}}});
+    } catch (e) { idle.textContent = "Could not open the camera: " + e.message; return; }
+    this.video.srcObject = this.stream;
+    await this.video.play();
+    idle.style.display = "none";
+    this.on = true; this.last = null;
+    this.q(".go").textContent = "Stop CCTV";
+    store.set("cctv-name", this.name);
+    this.detectLoop();
+    requestAnimationFrame(() => this.paint());
+  }
+  stop() { Station.prototype.stop.call(this); this.q(".go").textContent = "Start CCTV"; }
+  paint() { Station.prototype.paint.call(this); }
+  async detectLoop() {
+    let n = 0, since = performance.now();
+    while (this.on) {
+      const v = this.video;
+      if (!v.videoWidth) { await sleep(50); continue; }
+      const w = Math.min(1280, v.videoWidth), h = Math.round(v.videoHeight * w / v.videoWidth);
+      this.grab.width = w; this.grab.height = h;
+      this.grab.getContext("2d").drawImage(v, 0, 0, w, h);
+      const blob = await new Promise(r => this.grab.toBlob(r, "image/jpeg", 0.85));
+      try {
+        const res = await fetch("/api/cctv/frame?cam=" + encodeURIComponent(this.name),
+          {method: "POST", body: blob, headers: {"Content-Type": "image/jpeg"}});
+        const data = await res.json();
+        if (!res.ok) { this.q(".perf").textContent = data.error || "Server error"; await sleep(1000); continue; }
+        if (!this.on) break;
+        data.title = `CCTV ${data.camera}`;
+        data.banner = "ALERT: check the room. Technician notified";
+        this.last = data; this.sentW = w; this.sentH = h;
+        this.render(data);
+      } catch (e) { this.q(".perf").textContent = "Lost connection to the server."; await sleep(1000); }
+      n++;
+      const secs = (performance.now() - since) / 1000;
+      if (secs >= 2) {
+        this.q(".perf").textContent = `Video ${v.videoWidth}x${v.videoHeight} · detection ${(n / secs).toFixed(1)}/s (${this.last ? this.last.ms : "–"} ms each)`;
+        n = 0; since = performance.now();
+      }
+    }
+  }
+  render(d) {
+    if (d.prep) {
+      const b = d.prep.before;
+      this.q(".imgq").innerHTML = `Image: brightness <b>${b.brightness}</b>, contrast <b>${b.contrast}</b>` +
+        (d.prep.steps.length ? `<br>${esc(d.prep.steps.join("; "))}` : "");
+    }
+    const box = this.q(".inview");
+    if (d.covered) { box.innerHTML = `<div class="empty" style="color:var(--bad)">Camera blocked (${esc(d.covered_reason)})</div>`; return; }
+    if (!d.people.length) { box.innerHTML = `<div class="empty">Nobody in view.</div>`; return; }
+    const badge = p => p.kind === "ok" ? "b-ok" : p.kind === "alert" ? "b-bad" : "b-warn";
+    box.innerHTML = d.people.map(p => `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(p.display)}</b>
+          <span class="badge ${badge(p)}">${p.kind === "ok" ? "known" : p.kind === "alert" ? "alert" : fmt(p.seconds)}</span></div>
+        <div class="muted" style="font-size:13px">identified by: ${esc(p.how)}${p.name !== "unidentified" && p.name !== "unknown" ? ` · match ${p.score.toFixed(2)}` : ""}</div>
+      </div>`).join("");
+  }
+}
+const cctv = new Cctv($("#cctv-station"));
+
+async function pollCctv() {
+  try {
+    const d = await (await fetch("/api/cctv")).json();
+    $(".unk-sec").textContent = d.unknown_sec;
+    const online = d.cameras.filter(c => c.online);
+    const alerts = online.reduce((n, c) => n + c.people.filter(p => p.kind === "alert").length, 0);
+    const cnt = $("#cctv-count"); cnt.style.display = alerts ? "" : "none"; cnt.textContent = alerts;
+    $("#room-sub").textContent = `(${d.in_room.filter(r => r.last_seen <= d.log_gap).length} students; a visit ends after ${fmt(d.log_gap)} unseen)`;
+    $("#room-now").innerHTML = table(d.in_room, [
+      ["Student", r => esc(r.name) + (r.watchlist ? ` <span class="badge b-bad">watchlist</span>` : "")],
+      ["Camera", r => esc(r.camera)], ["Entered", r => esc(r.entered.slice(11))],
+      ["In room", r => `${r.minutes} min`], ["Last seen", r => r.last_seen < 3 ? "now" : `${fmt(r.last_seen)} ago`]]);
+    $("#room-log").innerHTML = table(d.log, [
+      ["Student", r => esc(r.name)], ["Camera", r => esc(r.camera)],
+      ["Entered", r => esc(r.entered)], ["Left", r => esc(r.left.slice(11))], ["Minutes", r => esc(r.minutes)]]);
+  } catch (e) {}
+  setTimeout(pollCctv, 2000);
+}
+async function loadCctvTest() {
+  const d = await (await fetch("/api/cctv/test")).json();
+  if (!d.rows.length) return;
+  const sizes = d.sizes;
+  $("#cctv-test").innerHTML = `<table><tr><th>Head pose</th>${sizes.map(w => `<th>${w} px face</th>`).join("")}</tr>` +
+    d.rows.map(r => `<tr><td><b>${esc(r.pose)}</b> <span class="muted">(${r.n} photos)</span></td>${sizes.map(w => {
+      const c = r.cells[w]; if (!c) return "<td>–</td>";
+      const ok = c.correct / c.n;
+      const cls = c.wrong ? "b-bad" : ok >= 0.9 ? "b-ok" : ok >= 0.5 ? "b-warn" : "b-bad";
+      return `<td><span class="badge ${cls}">${c.correct}/${c.unknown}/${c.wrong}/${c.noface}</span></td>`;
+    }).join("")}</tr>`).join("") + `</table>
+    <p class="muted">Wrong-person matches in total: <b>${d.wrong_total}</b> of ${d.total} tries.
+      Recognition rate: ${sizes.map(w => `${w}px ${d.rate[w]}%`).join(" · ")}.</p>`;
+}
+pollCctv();
+
 /* ================= CONSOLE ================= */
 const TYPE_LABEL = {WATCHLIST: "WATCHLIST", UNAUTHORIZED: "UNAUTHORIZED", WRONG_SEAT: "WRONG PC",
-                    CROWDING: "CROWDING", ABSENT: "ABSENT", CAMERA_BLOCKED: "CAMERA BLOCKED"};
+                    CROWDING: "CROWDING", ABSENT: "ABSENT", CAMERA_BLOCKED: "CAMERA BLOCKED", UNKNOWN_IN_ROOM: "UNKNOWN IN ROOM"};
 const STATUS_LABEL = {open: "Open", dispatched: "Technician sent", resolved: "Resolved", false_alarm: "False alarm"};
 let knownIncidents = null, soundOn = true, audioCtx = null;
 

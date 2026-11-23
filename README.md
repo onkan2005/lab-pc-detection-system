@@ -18,6 +18,7 @@ Final project for ICE 415 – Digital Image Processing.
 - [Same person, not a new one (re-identification)](#same-person-not-a-new-one-re-identification)
 - [Using the app](#using-the-app)
 - [Cameras (webcam, phone, two cameras)](#cameras)
+- [CCTV room camera](#cctv-room-camera)
 - [Configuration](#configuration)
 - [Course lessons applied](#course-lessons-applied)
 - [Privacy](#privacy)
@@ -211,6 +212,43 @@ frames are sent to the server for detection.
 
 ---
 
+## CCTV room camera
+
+Besides one camera per PC, the **CCTV** page takes a camera that watches the **whole room** (for example
+the phone with Iriun on a high shelf). Everyone in view is detected by YOLO26 and recognized; there is no
+"PC user" here, it answers *who is in the room*.
+
+- Frames are sent at 1280 px wide and YOLO26 runs at 960 px, so small, far-away people and faces are found
+  (slower than a PC camera: about 0.2 s per frame on a laptop CPU).
+- **In the room:** each recognized student, when they entered and how long they stayed. A visit ends after
+  `CCTV_LOG_GAP` seconds unseen and is written to `data/room_log.csv`.
+- **Incidents:** a watchlisted student in the room, an unknown person in the room for `CCTV_UNKNOWN_SEC`
+  seconds (UNKNOWN IN ROOM), the camera blocked.
+- **Not looking at the camera?** A face turned left/right is still recognized; looking down is the
+  weakest pose. The back of the head cannot be recognized by anyone, so a person is then named only
+  if their face was seen earlier and their clothes and body still match (shown as *"by red clothes"*);
+  otherwise they stay *"face not visible"*.
+
+How well does it work? Run the test (results are also shown on the CCTV page):
+
+```bash
+python evaluate_cctv.py
+```
+
+It shrinks every enrolled photo so the face is 160 px (close) down to 24 px (far) wide, places it in a
+1280×720 frame and recognizes it against the *other* photos. Measured on 29 photos of 3 students:
+
+| Face width | 160 px | 80 px | 48 px | 32 px | 24 px |
+|---|---|---|---|---|---|
+| Recognized correctly | 97% | 97% | 97% | 90% | 69% |
+| Wrong person | 0 | 0 | 0 | 0 | 0 |
+
+Turned faces (left/right) were recognized at every size; looking down failed most when far away. Faces
+narrower than about 32 px (a person across a big room on a 720p camera) are unreliable: use a
+1080p camera or put it closer.
+
+---
+
 ## Configuration
 
 All settings are in [`detector/config.py`](detector/config.py) (restart, or rebuild the Docker image,
@@ -319,12 +357,14 @@ merged them into the right 2 people and kept the names while faces were blurred.
     ├── reid.py                      re-identification by clothing colors + body dimensions
     ├── preprocess.py                course lessons: brightness/contrast, negative, normalization, equalization
     ├── faces.py                     face detection + recognition (cosine similarity)
-    ├── tracker.py                   usage sessions and alert rules
+    ├── tracker.py                   usage sessions and alert rules (PC cameras)
+    ├── room.py                      room presence, room log and alerts (CCTV cameras)
     ├── drawing.py                   labels and drawing
     ├── incidents.py                 incident feed with snapshots
     ├── enroll.py                    builds the face embeddings
     ├── reset.py                     wipes app data, keeps photos, re-enrolls
     ├── evaluate_lighting.py         low-light experiment
+    ├── evaluate_cctv.py             head pose × distance recognition test
     ├── monitor.py, find_camera.py   command-line version and camera finder
     ├── config.py                    all settings
     └── data/                        runtime data (not committed)

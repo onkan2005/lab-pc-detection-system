@@ -21,13 +21,14 @@ import numpy as np
 from flask import Flask, Response, abort, jsonify, render_template, request, send_from_directory
 
 import config
-from detection import UNIDENTIFIED, analyze, new_camera
+from detection import CCTV_PROFILE, UNIDENTIFIED, analyze, new_camera
 from reid import Gallery
 from drawing import blur_faces, describe, draw, draw_boxes
 from enroll import PHOTO_EXT, enroll
 import preprocess as pp
 from faces import Recognizer, detect_faces, load_face_app
 from incidents import Incidents
+from room import ROOM_LOG, RoomTracker
 from tracker import Tracker, load_assignments, save_assignments
 
 PC_NAME = re.compile(r"^[A-Za-z0-9_-]{1,20}$")
@@ -64,6 +65,8 @@ class Engine:
         self.tracker = Tracker(self.assignments, watchlist=self.watchlist)
         self.incidents = Incidents()
         self.stations = {}                     # pc -> latest result, thumbnail, timing
+        self.room = RoomTracker(self.watchlist)  # CCTV cameras: who is in the room
+        self.cctv = {}                         # CCTV camera name -> latest result, thumbnail, timing
         self.last_report = load_json(config.ENROLL_REPORT_FILE, None)   # photo quality + best photo per person
         self.next_cleanup = 0.0
         self.cleanup()
@@ -76,6 +79,7 @@ class Engine:
         removed = self.incidents.prune(config.RETENTION_DAYS)
         removed += prune_csv(config.SESSIONS_LOG, "start", config.RETENTION_DAYS)
         removed += prune_csv(config.ALERTS_LOG, "time", config.RETENTION_DAYS)
+        removed += prune_csv(ROOM_LOG, "entered", config.RETENTION_DAYS)
         if removed:
             print(f"Retention: removed {removed} item(s) older than {config.RETENTION_DAYS} days")
 
@@ -115,6 +119,46 @@ class Engine:
                     "covered_reason": result.get("covered_reason", ""), "prep": result["prep"],
                     "persons": result["persons"], "people": people, "ms": ms,
                     "covered_for": round(t - self.tracker.covered_since[pc]) if pc in self.tracker.covered_since else 0}
+
+    def process_cctv(self, cam, frame):
+        """Detection + room rules for one frame from a CCTV (room) camera: everyone in view is
+        found and named, nobody is "the PC user"."""
+        with self.lock:
+            self.cleanup()
+            t = self.now()
+            started = time.monotonic()
+            if cam not in self.cctv:
+                self.cctv[cam] = {"thumb": None, "thumb_t": -1, "cam": new_camera(CCTV_PROFILE)}
+            st = self.cctv[cam]
+            result = analyze(frame, st["cam"], self.face_app, self.recognizer)
+            ms = round((time.monotonic() - started) * 1000)
+            self.room.update(t, cam, result["people"], result["covered"])
+            people = self.room.describe(cam, result["people"], t)
+            shown = blur_faces(frame.copy(), people) if config.PRIVACY_BLUR else frame
+            for alert in self.room.take_new_alerts():
+                self.incidents.add(alert, shown, draw(shown.copy(), f"CCTV {cam}", people, result["covered"]), people)
+            if t - st["thumb_t"] >= 1.0:
+                clean = draw_boxes(shown.copy(), people)
+                small = cv2.resize(clean, (640, round(clean.shape[0] * 640 / clean.shape[1])))
+                st["thumb"] = cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 75])[1].tobytes()
+                st["thumb_t"] = t
+            st.update({"t": t, "ms": ms, "covered": result["covered"], "people": people})
+            return {"camera": cam, "covered": result["covered"], "covered_reason": result.get("covered_reason", ""),
+                    "persons": result["persons"], "people": people, "ms": ms, "prep": result["prep"],
+                    "covered_for": round(t - self.room.covered_since[cam]) if cam in self.room.covered_since else 0}
+
+    def cctv_overview(self):
+        t = self.now()
+        cams = []
+        for cam, st in sorted(self.cctv.items()):
+            online = self.room.online(cam, t)
+            people = st.get("people", []) if online else []
+            cams.append({"camera": cam, "online": online, "covered": cam in self.room.covered_since,
+                         "ms": st.get("ms"), "has_thumb": bool(st.get("thumb")),
+                         "people": [{k: p[k] for k in ("id", "display", "label", "kind", "how", "seconds", "name")}
+                                    for p in people]})
+        return {"cameras": cams, "in_room": self.room.in_room(t), "log": read_csv_tail(ROOM_LOG, 20),
+                "unknown_sec": config.CCTV_UNKNOWN_SEC, "log_gap": config.CCTV_LOG_GAP}
 
     def pc_list(self):
         return sorted(set(self.assignments) | set(self.stations))
@@ -228,6 +272,59 @@ def frame_in():
     return jsonify(engine.process(pc, frame))
 
 
+@app.route("/api/cctv/frame", methods=["POST"])
+def cctv_frame_in():
+    """One frame (JPEG) from a CCTV / room camera -> everyone in view, as JSON."""
+    cam = request.args.get("cam", "")
+    if not PC_NAME.match(cam):
+        return jsonify({"error": "Give this CCTV camera a name (letters, numbers, - and _)."}), 400
+    frame = cv2.imdecode(np.frombuffer(request.get_data(), np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({"error": "bad frame"}), 400
+    return jsonify(engine.process_cctv(cam, frame))
+
+
+@app.route("/api/cctv")
+def cctv_state():
+    return jsonify(engine.cctv_overview())
+
+
+@app.route("/api/cctv/test")
+def cctv_test():
+    """Summary of evaluate_cctv.py (head pose x face size -> correct / unknown / wrong / no face)."""
+    path = config.DATA_DIR / "cctv_pose_results.csv"
+    rows = []
+    if path.exists():
+        with open(path, newline="") as f:
+            rows = list(csv.DictReader(f))
+    sizes = sorted({int(r["face_px"]) for r in rows}, reverse=True)
+    key = {"correct": "correct", "unknown": "unknown", "wrong person": "wrong", "no face found": "noface"}
+    table = []
+    for pose in ["front", "left", "right", "up", "down", "other"]:
+        cells = {}
+        for w in sizes:
+            sel = [r for r in rows if r["pose"] == pose and int(r["face_px"]) == w]
+            if sel:
+                c = {"correct": 0, "unknown": 0, "wrong": 0, "noface": 0, "n": len(sel)}
+                for r in sel:
+                    c[key[r["outcome"]]] += 1
+                cells[w] = c
+        if cells:
+            table.append({"pose": pose, "n": max(c["n"] for c in cells.values()), "cells": cells})
+    rate = {w: round(100 * sum(r["outcome"] == "correct" for r in rows if int(r["face_px"]) == w) /
+                     max(1, sum(int(r["face_px"]) == w for r in rows))) for w in sizes}
+    return jsonify({"sizes": sizes, "rows": table, "rate": rate, "total": len(rows),
+                    "wrong_total": sum(r["outcome"] == "wrong person" for r in rows)})
+
+
+@app.route("/api/cctv/<cam>/thumb")
+def cctv_thumb(cam):
+    st = engine.cctv.get(cam)
+    if not st or not st.get("thumb"):
+        abort(404)
+    return Response(st["thumb"], mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 @app.route("/api/pc/<pc>/thumb")
 def pc_thumb(pc):
     st = engine.stations.get(pc)
@@ -318,7 +415,7 @@ def run_enroll():
     with engine.lock:
         report = enroll(engine.face_app)
         engine.recognizer = load_recognizer()
-        for st in engine.stations.values():
+        for st in [*engine.stations.values(), *engine.cctv.values()]:
             st["cam"]["gallery"] = Gallery()   # recognize everyone again with the new photos
     engine.last_report = report
     return jsonify({"report": report, "embeddings": len(engine.recognizer.names)})
@@ -354,6 +451,7 @@ def save_watchlist():
     with engine.lock:
         engine.watchlist = names
         engine.tracker.watchlist = set(names)
+        engine.room.watchlist = set(names)
     return jsonify({"ok": True, "watchlist": names})
 
 
