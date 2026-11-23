@@ -21,7 +21,7 @@ COLORS = {"ok": "#1f9d55", "checking": "#f08c00", "alert": "#e03131", "bystander
 
 
 class RoomTracker:
-    def __init__(self, watchlist=()):
+    def __init__(self, watchlist=(), room_log=None, alerts_log=None, quiet=False):
         self.watchlist = set(watchlist)
         self.start_wall = datetime.now()
         self.visits = {}          # (cam, name) -> {"first": t, "last": t}   enrolled people in the room
@@ -31,8 +31,11 @@ class RoomTracker:
         self.fired = set()
         self.new_alerts = []
         self.numbers = StableNumbers()
-        if not ROOM_LOG.exists():
-            with open(ROOM_LOG, "w", newline="") as f:
+        self.quiet = quiet
+        self.room_log = room_log or ROOM_LOG             # a video test writes its own logs elsewhere
+        self.alerts_log = alerts_log or config.ALERTS_LOG
+        if not self.room_log.exists():
+            with open(self.room_log, "w", newline="") as f:
                 csv.writer(f).writerow(["name", "camera", "entered", "left", "minutes"])
 
     def stamp(self, t):
@@ -46,9 +49,10 @@ class RoomTracker:
         if key in self.fired:
             return
         self.fired.add(key)
-        with open(config.ALERTS_LOG, "a", newline="") as f:
+        with open(self.alerts_log, "a", newline="") as f:
             csv.writer(f).writerow([self.stamp(t), kind, cam, name, detail])
-        print("ALERT", f"[{self.stamp(t)}] {kind}: {detail}")
+        if not self.quiet:
+            print("ALERT", f"[{self.stamp(t)}] {kind}: {detail}")
         self.new_alerts.append({"time": self.stamp(t), "type": kind, "pc": cam, "name": name,
                                 "detail": detail, "pid": pid})
 
@@ -57,7 +61,7 @@ class RoomTracker:
         return alerts
 
     def _log_visit(self, cam, name, v):
-        with open(ROOM_LOG, "a", newline="") as f:
+        with open(self.room_log, "a", newline="") as f:
             csv.writer(f).writerow([name, cam, self.stamp(v["first"]), self.stamp(v["last"]),
                                     f"{(v['last'] - v['first']) / 60:.2f}"])
 

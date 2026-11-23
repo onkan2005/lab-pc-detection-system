@@ -235,6 +235,32 @@
   .simbar > div { height: 100%; border-radius: 4px; }
   .simbar .th { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
 
+  /* ---------- video test ---------- */
+  .vt-form { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .vt-opts { display: grid; gap: 12px; }
+  .vt-opts .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 4px 10px; border: 1px solid var(--border);
+          border-radius: 999px; cursor: pointer; user-select: none; }
+  .chip input { accent-color: var(--ok); }
+  .vt-live { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; margin-top: 18px; align-items: start; }
+  .vt-stage { background: var(--shot); border-radius: 14px; overflow: hidden; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; }
+  .vt-stage img, .vt-stage video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .vt-progress { height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; margin-top: 10px; }
+  .vt-progress > div { height: 100%; background: var(--text); transition: width .3s ease-out; }
+  .pipe { display: flex; height: 22px; border-radius: 6px; overflow: hidden; margin: 8px 0 6px; background: var(--track); }
+  .pipe > div { height: 100%; min-width: 2px; }
+  .pipe-legend { display: grid; grid-template-columns: 14px 1fr auto; gap: 4px 8px; font-size: 13px; align-items: center; }
+  .pipe-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 18px; }
+  .stat { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; }
+  .stat .v { font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+  .stat .k { font-size: 12px; color: var(--muted); }
+  .stat .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .calc td { font-size: 13px; vertical-align: top; }
+  .calc .ok { color: var(--ok); } .calc .no { color: var(--bad); }
+  @media (max-width: 1100px) { .vt-form, .vt-live { grid-template-columns: 1fr; } }
+
   /* ---------- PCs / help ---------- */
   .add-pc { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 16px; }
   .lab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin-top: 14px; }
@@ -393,6 +419,55 @@
         </div>
         <div class="card"><h2>Result</h2><div id="photo-result" class="empty">No photo yet.</div></div>
       </div>
+      <div class="card" style="margin-top:18px" id="vt">
+        <h2>Check a video <span class="muted" id="vt-sub"></span></h2>
+        <p class="muted" style="margin-top:-6px">Upload a recording (for example from the CCTV phone) and watch the system work on it frame by frame:
+          YOLO26, the tracker, re-identification, face detection and ArcFace, with the numbers behind every decision.</p>
+        <div class="vt-form">
+          <label class="drop" id="vt-drop">
+            <input type="file" id="vt-file" accept="video/*,.mkv,.avi,.mpg,.mpeg" class="sr-only">
+            <div><b>Choose a video</b> or drag it here</div>
+            <div class="muted" id="vt-file-name">MP4, MOV, AVI, MKV, WebM … The original is deleted after the test; only a face-blurred result is kept.</div>
+          </label>
+          <div class="vt-opts">
+            <div class="row">
+              <label class="field">Camera type <select id="vt-profile">
+                <option value="cctv">CCTV (room, far away)</option><option value="pc">PC camera (close up)</option></select></label>
+              <label class="field">Frames to analyze <select id="vt-fps">
+                <option value="10">10 per second (like live)</option><option value="5">5 per second (faster)</option>
+                <option value="0">Every frame (slowest)</option></select></label>
+            </div>
+            <div class="field">Who is really in the video? <span class="muted" style="font-weight:400">(optional: then it can tell right from wrong names)</span>
+              <div class="chips" id="vt-expect"><span class="muted">Nobody enrolled yet.</span></div></div>
+            <div class="row"><button class="btn primary" id="vt-start" disabled>Start test</button>
+              <button class="btn" id="vt-stop" style="display:none">Stop</button>
+              <span class="msg" id="vt-msg" role="status"></span></div>
+          </div>
+        </div>
+        <div id="vt-out" style="display:none">
+          <div class="vt-live">
+            <div>
+              <div class="vt-stage" id="vt-stage"></div>
+              <div class="vt-progress"><div id="vt-bar" style="width:0"></div></div>
+              <div class="muted" id="vt-progress" style="margin-top:6px;font-size:13px"></div>
+            </div>
+            <div>
+              <div class="muted" style="font-weight:600">Time per analyzed frame</div>
+              <div class="pipe" id="vt-pipe"></div>
+              <div class="pipe-legend" id="vt-pipe-legend"></div>
+              <div class="muted" style="font-weight:600;margin-top:14px">Current frame <span id="vt-cur-time"></span></div>
+              <div id="vt-prep" class="muted" style="font-size:13px;margin:4px 0 6px"></div>
+              <div class="table-wrap" id="vt-calc"></div>
+            </div>
+          </div>
+          <div class="tiles" id="vt-tiles"></div>
+          <div class="grid" style="margin-top:16px">
+            <div><h2 style="font-size:15px">Who was seen</h2><div class="table-wrap" id="vt-names"></div></div>
+            <div><h2 style="font-size:15px">Alerts raised</h2><div class="table-wrap" id="vt-alerts"></div></div>
+          </div>
+        </div>
+        <div style="margin-top:16px"><div class="muted" style="font-weight:600;margin-bottom:6px">Recent tests</div><div id="vt-recent"></div></div>
+      </div>
     </section>
 
     <!-- PCS -->
@@ -508,7 +583,7 @@ function showPage() {
   document.querySelectorAll(".page").forEach(s => s.classList.toggle("active", s.id === "page-" + page));
   document.querySelectorAll(".nav a").forEach(a => a.dataset.page === page ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
   document.title = `${document.querySelector(".nav a[aria-current] .label").textContent} · PC Usage Monitor`;
-  if (page === "students") loadEnrollment();
+  if (page === "students") { loadEnrollment(); vtFillExpect(); vtRecent(); }
   if (page === "cctv") loadCctvTest();
   window.scrollTo(0, 0);
 }
@@ -1155,6 +1230,7 @@ function renderEnrollPending(s) {
 
 function render(s) {
   state = s;
+  vtFillExpect();
   const online = s.pcs.filter(p => p.online).length;
   $("#status").textContent = `Live · ${online}/${s.pcs.length} cameras online · `;
   $("#clock").textContent = new Date().toLocaleTimeString();
@@ -1224,6 +1300,159 @@ async function testPhoto(file) {
       <div style="margin-top:8px" class="muted">Similarity to each enrolled person (line = threshold):</div>${sims}</div>`;
   }).join("");
 }
+/* ================= VIDEO TEST: live view of the whole pipeline on a recorded video ================= */
+const VT_COLORS = {preprocess: "#a78bfa", yolo: "#3b82f6", reid: "#14b8a6", face_detect: "#f59e0b", arcface: "#ef4444"};
+const VT_STEPS = ["preprocess", "yolo", "reid", "face_detect", "arcface"];   // pipeline order
+let vtFile = null, vtId = null, vtTimer = null, vtExpect = new Set();
+const mmss = s => s == null ? "–" : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+
+function vtFillExpect() {
+  const box = $("#vt-expect"), people = (state && state.people) || [];
+  if (!people.length) return;
+  const html = people.map(n => `<label class="chip"><input type="checkbox" value="${esc(n)}" ${vtExpect.has(n) ? "checked" : ""}>${esc(n)}</label>`).join("");
+  if (box.dataset.sig !== people.join()) { box.innerHTML = html; box.dataset.sig = people.join(); }
+}
+$("#vt-expect").onchange = e => { e.target.checked ? vtExpect.add(e.target.value) : vtExpect.delete(e.target.value); };
+function vtPick(file) {
+  if (!file) return;
+  vtFile = file;
+  $("#vt-file-name").textContent = `${file.name} · ${(file.size / 1048576).toFixed(1)} MB`;
+  $("#vt-start").disabled = false;
+}
+$("#vt-file").onchange = e => vtPick(e.target.files[0]);
+$("#vt-drop").ondragover = e => e.preventDefault();
+$("#vt-drop").ondrop = e => { e.preventDefault(); vtPick(e.dataTransfer.files[0]); };
+
+$("#vt-start").onclick = () => {
+  if (!vtFile) return;
+  const fd = new FormData();
+  fd.append("video", vtFile); fd.append("profile", $("#vt-profile").value);
+  fd.append("fps", $("#vt-fps").value); fd.append("expect", [...vtExpect].join(","));
+  const xhr = new XMLHttpRequest();   // XHR (not fetch) so the upload can show progress
+  xhr.open("POST", "/api/video_tests");
+  xhr.upload.onprogress = e => { if (e.lengthComputable) $("#vt-msg").textContent = `Uploading… ${Math.round(e.loaded / e.total * 100)}%`; };
+  xhr.onload = () => {
+    let d = {}; try { d = JSON.parse(xhr.responseText); } catch (e) {}
+    if (xhr.status !== 200) { $("#vt-msg").textContent = d.error || `Upload failed (${xhr.status}).`; $("#vt-start").disabled = false; return; }
+    $("#vt-msg").textContent = "Loading models…";
+    vtOpen(d.id);
+  };
+  xhr.onerror = () => { $("#vt-msg").textContent = "Upload failed."; $("#vt-start").disabled = false; };
+  $("#vt-start").disabled = true;
+  xhr.send(fd);
+};
+$("#vt-stop").onclick = () => vtId && fetch(`/api/video_tests/${vtId}/stop`, {method: "POST"});
+
+function vtOpen(id) {
+  vtId = id; clearTimeout(vtTimer);
+  $("#vt-out").style.display = "";
+  $("#vt-stage").innerHTML = `<img alt="Current frame being analyzed">`;
+  vtPoll();
+}
+
+async function vtPoll() {
+  const id = vtId;
+  let d;
+  try { d = await (await fetch(`/api/video_tests/${id}`)).json(); } catch (e) { vtTimer = setTimeout(vtPoll, 1500); return; }
+  if (id !== vtId) return;
+  vtRender(id, d);
+  const live = d.status === "running" || d.status === "queued";
+  $("#vt-stop").style.display = live ? "" : "none";
+  if (live) vtTimer = setTimeout(vtPoll, 700);
+  else { $("#vt-start").disabled = !vtFile; vtRecent(); }
+}
+
+function vtRender(id, d) {
+  const live = d.status === "running" || d.status === "queued";
+  const v = d.video || {}, p = d.progress || {}, s = d.stats, tm = d.timings, cur = d.current;
+  $("#vt-sub").textContent = d.name ? `· ${d.name}` : "";
+  $("#vt-msg").textContent = d.status === "error" ? "Error: " + d.error : d.status === "cancelled" ? "Stopped." :
+    d.status === "done" ? "Done." : d.status === "queued" ? "Starting…" : "Analyzing…";
+  // stage: the live frame while running, the face-blurred result video when finished
+  const stage = $("#vt-stage");
+  if (live) {
+    const img = stage.querySelector("img") || (stage.innerHTML = `<img alt="Current frame">`, stage.querySelector("img"));
+    if (p.frame) img.src = `/api/video_tests/${id}/frame.jpg?f=${p.frame}`;
+  } else if (d.result_video && !stage.querySelector("video")) {
+    stage.innerHTML = `<video controls src="/api/video_tests/${id}/result.webm"></video>`;
+  }
+  $("#vt-bar").style.width = (p.pct ?? (live ? 0 : 100)) + "%";
+  $("#vt-progress").innerHTML = v.width ? `${v.width}×${v.height}, ${v.fps} fps, ${mmss(v.seconds)} long · analyzing ` +
+    `${v.every > 1 ? `every ${v.every}${v.every === 2 ? "nd" : v.every === 3 ? "rd" : "th"} frame (${v.processed_fps}/s)` : "every frame"}` +
+    (p.frame ? ` · at ${mmss(p.time)} (${p.pct ?? "?"}%) · ${p.speed} frames/s · ${live ? `about ${mmss(p.eta)} left` : `took ${mmss(p.elapsed)}`}` : "") : "";
+
+  if (tm) {   // pipeline: where the time goes per analyzed frame
+    const total = tm.total_per_frame || 1;
+    const steps = VT_STEPS.map(k => [k, tm.per_frame[k] || 0]);
+    $("#vt-pipe").innerHTML = steps.map(([k, ms]) =>
+      `<div title="${esc(tm.labels[k])}: ${ms} ms" style="width:${ms / total * 100}%;background:${VT_COLORS[k]}"></div>`).join("");
+    $("#vt-pipe-legend").innerHTML = steps.map(([k, ms]) =>
+      `<i style="background:${VT_COLORS[k]}"></i><span>${esc(tm.labels[k])}${k === "arcface" ? ` <span class="muted">(ran ${tm.arcface_runs}×, ${tm.arcface_each} ms each; only when a face needs checking)</span>` : ""}</span><b>${ms} ms</b>`).join("")
+      + `<span></span><span>Total per frame</span><b>${tm.total_per_frame} ms</b>`;
+  }
+  if (cur) {   // the computations behind the current frame
+    $("#vt-cur-time").textContent = `(${mmss(cur.time)})`;
+    const pr = cur.prep;
+    $("#vt-prep").innerHTML = `Brightness ${pr.brightness}, contrast ${pr.contrast}` +
+      (pr.steps.length ? ` → corrected to ${pr.after[0]} / ${pr.after[1]} (${esc(pr.steps.join("; "))})` : " (no correction needed)") +
+      ` · YOLO26 input ${pr.yolo_imgsz || "–"} px` + (cur.covered ? ` · <b style="color:var(--bad)">camera blocked: ${esc(cur.covered_reason)}</b>` : "");
+    const th = (state && state.config.MATCH_THRESHOLD) || 0.45;
+    $("#vt-calc").innerHTML = !cur.people.length ? `<div class="empty">Nobody in this frame.</div>` : `<table class="calc">
+      <tr><th>Person</th><th>YOLO26</th><th>Face</th><th>ArcFace</th><th>Re-ID</th></tr>` +
+      cur.people.map(q => `<tr>
+        <td><b style="color:${q.kind === "ok" ? "var(--ok)" : q.kind === "alert" ? "var(--bad)" : "inherit"}">${esc(q.label)}</b><br><span class="muted">${esc(q.how)}</span></td>
+        <td>${q.conf != null ? `conf ${q.conf.toFixed(2)}` : "–"}</td>
+        <td>${q.face_px ? `${q.face_px} px<br><span class="muted">score ${q.face_score}</span>` : `<span class="muted">not found</span>`}</td>
+        <td>${q.checked ? `<span class="${q.checked.score >= th ? "ok" : "no"}">${q.checked.score.toFixed(2)} ${q.checked.score >= th ? "≥" : "<"} ${th}</span><br><span class="muted">→ ${esc(q.checked.name)}</span>`
+              : q.name !== "unidentified" && q.name !== "unknown" ? `<span class="muted">kept ${q.score.toFixed(2)}</span>` : `<span class="muted">–</span>`}</td>
+        <td>${q.reid && q.reid_sim != null ? `${q.reid_sim.toFixed(2)} ≥ 0.70<br><span class="muted">${esc(q.clothes || "")} clothes</span>` : `<span class="muted">${esc(q.clothes || "")}</span>`}</td>
+      </tr>`).join("") + `</table>`;
+  }
+  if (s) {
+    const tile = (v, k, sub = "") => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
+    let t = tile(s.frames, "frames analyzed") +
+      tile(s.max_people, "most people at once", `avg ${s.avg_people} per frame`) +
+      tile(s.face_found_pct + "%", "person boxes with a face", "faces need ≥ ~32 px") +
+      tile(s.identities, "identities created", `${s.tracks} tracks, ${s.rejoined} re-joined by clothes`) +
+      tile(s.label_changes, "number changes while in view", `highest "Unknown person" ${s.highest_n || "–"}`) +
+      tile(s.alert_count, "alerts raised");
+    if (s.accuracy) {
+      const a = s.accuracy, pct = x => x.correct_pct == null ? "–" : x.correct_pct + "%";
+      t += tile(pct(a.face), "right name, face visible", `${a.face.n} boxes`) +
+           tile(pct(a.no_face), "right name, NO face visible", `${a.no_face.n} boxes`) +
+           tile(`<span style="color:${a.all.wrong ? "var(--bad)" : "var(--ok)"}">${a.all.wrong}</span>`, "wrong names", "a name of someone not in the video");
+    }
+    $("#vt-tiles").innerHTML = t;
+    $("#vt-names").innerHTML = table(s.names, [
+      ["Name", r => `<b>${esc(r.name)}</b>` + (r.expected === false ? ` <span class="badge b-bad">not in video</span>` : "")],
+      ["In view", r => `${r.seconds}s <span class="muted">(${mmss(r.first)}–${mmss(r.last)})</span>`],
+      ["Named by", r => Object.entries(r.by).map(([k, n]) => `${k} ${Math.round(n / r.frames * 100)}%`).join(" · ")]]);
+    $("#vt-alerts").innerHTML = table(s.alerts, [["At", r => mmss(r.time)], ["Type", r => esc(r.type)], ["Detail", r => esc(r.detail)]]);
+  }
+}
+
+async function vtRecent() {
+  let list = [];
+  try { list = await (await fetch("/api/video_tests")).json(); } catch (e) { return; }
+  const running = list.find(r => r.status === "running" || r.status === "queued");
+  if (!vtId && list.length) vtOpen((running || list[0]).id);   // show the running test, else the latest result
+  $("#vt-recent").innerHTML = !list.length ? `<div class="empty">No video tests yet.</div>` : table(list, [
+    ["Video", r => `<button class="link vt-open" data-id="${r.id}">${esc(r.name)}</button>`],
+    ["Length", r => mmss(r.seconds)], ["Camera", r => r.profile === "pc" ? "PC" : "CCTV"],
+    ["Status", r => esc(r.status)], ["When", r => esc(r.created)],
+    ["", r => r.status === "running" || r.status === "queued" ? "" : `<button class="btn danger vt-del" data-id="${r.id}">Delete</button>`]]);
+}
+document.addEventListener("click", async e => {
+  const open = e.target.closest(".vt-open");
+  if (open) { vtOpen(open.dataset.id); $("#vt").scrollIntoView({behavior: "smooth"}); return; }
+  const del = e.target.closest(".vt-del");
+  if (del) {
+    await fetch(`/api/video_tests/${del.dataset.id}`, {method: "DELETE"});
+    if (vtId === del.dataset.id) { vtId = null; $("#vt-out").style.display = "none"; }
+    vtRecent();
+  }
+});
+
 $("#photo").onchange = e => testPhoto(e.target.files[0]);
 $("#drop").ondragover = e => e.preventDefault();
 $("#drop").ondrop = e => { e.preventDefault(); testPhoto(e.dataTransfer.files[0]); };

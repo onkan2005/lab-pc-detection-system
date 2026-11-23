@@ -187,7 +187,8 @@ while the app is stopped.
 |---|---|
 | **Overview** | Camera wall (one tile per PC, filter by *Needs attention / Online / Offline*) and the incident **Feed**. Click **Send technician**, then **Resolved** or **False alarm**. |
 | **Cameras** | Choose *This camera is PC-0X* and the camera device, **Start camera**. **Add camera** for a second camera on the same computer. Under the video: who is there, the verdict, image brightness/contrast. |
-| **Students** | Enrolled students, **Watchlist** checkbox (banned from all PCs), enrollment, **Check a photo**. |
+| **CCTV** | A room camera: everyone in view, who is in the room and for how long, room log, the head-pose/distance test results. |
+| **Students** | Enrolled students, **Watchlist** checkbox (banned from all PCs), enrollment, **Check a photo**, **Check a video** (see below). |
 | **PCs** | Every PC, camera status, who is using it now, assigned students (**Edit** opens a searchable list; a PC can have several students), add/remove PCs, usage log. |
 | **How it works** | Pipeline, alert thresholds, course lessons table, **Image processing lab** (upload a photo, see every lesson's operation with its histogram, simulate a dim room). |
 
@@ -243,15 +244,29 @@ It shrinks every enrolled photo so the face is 160 px (close) down to 24 px (far
 | Recognized correctly | 97% | 97% | 97% | 90% | 69% |
 | Wrong person | 0 | 0 | 0 | 0 | 0 |
 
-**Test on a real video** (does a person keep their name when the face is gone?):
+**Test on a real video** (does a person keep their name when the face is gone?). In the app:
+**Students → Check a video**. Upload a recording, choose the camera type, optionally tick who is really
+in it, and press **Start test**. While it runs you see, live:
+
+- the current frame with YOLO26 boxes and labels (faces pixelated),
+- **time per frame for each step**: preprocessing, YOLO26 + tracker, re-ID, SCRFD face detection, ArcFace,
+- **the numbers behind every decision** in the current frame: brightness/contrast and the correction, the
+  YOLO26 input size and each box's confidence, the face size and detector score, the ArcFace similarity
+  compared with the 0.45 threshold, and the re-ID similarity when someone is kept by their clothes,
+- running totals: people at once, faces found, identities, number changes, alerts, and (if you ticked
+  who is in the video) right / unknown / **wrong** names with and without a visible face.
+
+At the end the face-blurred result video plays on the page. The uploaded original is deleted after
+the test; results are kept in `data/video_tests/` (last 5 tests). One test runs at a time, and live
+cameras get slower while it runs (it uses the same CPU). The same test from the command line:
 
 ```bash
 python evaluate_video.py ../test_videos/my_clip.mp4 --expect juan,maria       # your own recording
-python evaluate_video.py ../test_videos/faceocc2.webm --enroll tester          # a public sample, person enrolled temporarily
+python evaluate_video.py ../test_videos/faceocc2.webm --enroll tester --fps 0  # public sample, person enrolled temporarily, every frame
 ```
 
-It runs every frame through the same pipeline as the app (including the room rules) and saves an annotated
-video plus CSV files in `test_videos/` (ignored by Git and Docker). Results on public test videos:
+It saves `result.webm` and `summary.json` in `<video>_result/` (keep test videos in `test_videos/`,
+ignored by Git and Docker). Results on public test videos:
 
 | Video | What it tests | Result |
 |---|---|---|
@@ -393,7 +408,10 @@ merged them into the right 2 people and kept the names while faces were blurred.
     ├── reset.py                     wipes app data, keeps photos, re-enrolls
     ├── evaluate_lighting.py         low-light experiment
     ├── evaluate_cctv.py             head pose × distance recognition test
-    ├── evaluate_video.py            real-video test: is the name kept when the face is gone?
+    ├── videotest.py                 video test with live stats (Check a video page)
+    ├── evaluate_video.py            the same video test from the command line
+    ├── labels.py                    stable 'Unknown person N' numbers
+    ├── tracker_cctv.yaml            BoT-SORT tracker settings for CCTV cameras
     ├── monitor.py, find_camera.py   command-line version and camera finder
     ├── config.py                    all settings
     └── data/                        runtime data (not committed)

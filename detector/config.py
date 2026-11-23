@@ -84,6 +84,11 @@ MIN_FACE_PX = 50         # faces narrower than this (in the 640-wide frame) are 
 # (saved already blurred, the sharp image is never stored) and the live camera view. The name label
 # still tells the technician who it is. If no face is visible, the head area is blurred instead.
 PRIVACY_BLUR = True
+# Video tests ("Check a video" page / evaluate_video.py)
+VIDEO_TEST_DIR = DATA_DIR / "video_tests"   # results (face-blurred video, stats); uploads are deleted after processing
+VIDEO_TEST_FPS = 10        # frames per second of video that are analyzed (about the live rate); 0 = every frame
+VIDEO_TEST_KEEP = 5        # keep the results of the last N video tests
+VIDEO_MAX_MB = 1024        # biggest video that can be uploaded
 RETENTION_DAYS = 30       # incidents, snapshots and logs older than this are deleted automatically (0 = keep)
 
 # --- Thresholds (seconds) ---

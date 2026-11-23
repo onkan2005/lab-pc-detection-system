@@ -88,12 +88,22 @@ def find_face(img, person_box, face_app, det_size=config.LIVE_FACE_DET_SIZE, min
     return Face(bbox=b[:4] + offset, kps=kps, det_score=b[4])
 
 
-def analyze(frame, cam, face_app, recognizer):
+def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
     """Returns {"covered", "persons", "people": [{"id", "box", "face_box", "name", "score", "user"}], "user"}.
 
     cam: the state from new_camera() for this PC. Boxes are in the coordinates of the frame passed in.
+    now: clock in seconds (default: time.monotonic(); a video test passes the video's own time).
+    timings: optional dict; milliseconds spent in each step are added to it (preprocess, yolo, reid,
+    face_detect, arcface) plus "arcface_runs", so the video test can show where the time goes.
     """
+    t_ms = timings if timings is not None else {}
+    clock = time.perf_counter
+
+    def spent(step, since):
+        t_ms[step] = t_ms.get(step, 0.0) + (clock() - since) * 1000
+
     prof = cam.get("profile", PC_PROFILE)
+    t0 = clock()
     small, back = shrink(frame, prof["width"])
     # 0. Preprocessing from the earlier lessons: measure brightness/contrast, fix dark or flat frames
     if config.PREPROCESS:
@@ -101,19 +111,24 @@ def analyze(frame, cam, face_app, recognizer):
     else:
         prep = {"before": stats(small), "after": stats(small), "steps": [], "glare": False,
                 "detail": round(detail(small), 1), "format": f"{small.shape[1]}x{small.shape[0]} {small.dtype} BGR"}
+    spent("preprocess", t0)
     if prep["glare"]:
         return {"covered": True, "covered_reason": "blinded by a bright light", "persons": 0,
                 "people": [], "user": None, "prep": prep}
-    now = time.monotonic()
+    now = time.monotonic() if now is None else now
 
-    # 1-2. YOLO26 person detection + ByteTrack IDs
+    # 1-2. YOLO26 person detection + tracker IDs
     # YOLO input size: the profile's size, but never much bigger than the camera image itself. Blowing a
     # low-resolution CCTV frame up only makes it blurry: on a 384-px CCTV video YOLO26 found the person in
     # 126/145 frames at 480 px, 119 at 640, 95 at 960 (measured with evaluate_video.py test clips).
+    t0 = clock()
     imgsz = min(prof["yolo"], max(320, math.ceil(small.shape[1] * 1.25 / 32) * 32))
     det = cam["yolo"].track(small, persist=True, tracker=prof.get("tracker", "bytetrack.yaml"), classes=[0],
                             conf=prof.get("conf", config.YOLO_CONF), imgsz=imgsz, verbose=False)[0]
     boxes = det.boxes.xyxy.tolist()
+    confs = det.boxes.conf.tolist()
+    spent("yolo", t0)
+    prep["yolo_imgsz"] = imgsz
     # Tamper check: almost no detail AND YOLO sees nobody. (A dim room still has detail and people,
     # so it is not mistaken for a covered lens.)
     if not boxes and prep["detail"] < config.TAMPER_STD:
@@ -127,14 +142,23 @@ def analyze(frame, cam, face_app, recognizer):
     for k in order:
         box, tid = boxes[k], ids[k]
         # 3b. re-identification: same track, or a recent person with the same clothes/body -> same person
+        t0 = clock()
         sig = signature(small, box)
         person = gallery.person_for(tid, sig, now, taken)
+        spent("reid", t0)
         # 4. face inside this person's box (cheap) -> recognize only when needed (ArcFace is the slow part)
+        t0 = clock()
         face = find_face(small, box, face_app, prof["face"], prof["min_face"])
+        spent("face_detect", t0)
+        checked = None
         if face is not None and (person["name"] in (None, "unknown") or now - person["at"] >= config.RECOGNIZE_EVERY):
+            t0 = clock()
             face_app.models["recognition"].get(small, face)
             name, score = recognizer.identify(face.normed_embedding)
+            spent("arcface", t0)
+            t_ms["arcface_runs"] = t_ms.get("arcface_runs", 0) + 1
             name = str(name)
+            checked = {"name": name, "score": round(float(score), 3)}   # this frame's ArcFace answer
             known = person["name"] not in (None, "unknown")
             clear = sharpness(small, face.bbox) >= config.FACE_SHARPNESS_MIN
             if known and name == "unknown" and not clear:
@@ -150,7 +174,11 @@ def analyze(frame, cam, face_app, recognizer):
             "id": person["pid"], "track": tid, "name": person["name"] or UNIDENTIFIED,
             "score": round(person["score"], 2), "user": False,
             "reid": bool(person.get("reid")),   # name from clothes/body re-ID, not yet confirmed by a face
+            "reid_sim": person.get("reid_sim"),
             "clothes": sig["color"],
+            "conf": round(confs[k], 2),          # YOLO26 confidence that this box is a person
+            "face_score": round(float(face.det_score), 2) if face is not None else None,   # SCRFD confidence
+            "checked": checked,
             "box": [round(v * back) for v in box],
             "face_box": [round(float(v) * back) for v in face.bbox] if face is not None else None,
         })

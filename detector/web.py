@@ -13,8 +13,11 @@ import csv
 import json
 import os
 import re
+import shutil
 import threading
 import time
+
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -30,6 +33,9 @@ from faces import Recognizer, detect_faces, load_face_app
 from incidents import Incidents
 from room import ROOM_LOG, RoomTracker
 from tracker import Tracker, load_assignments, save_assignments
+from videotest import VideoTest
+
+VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".mpg", ".mpeg", ".m4v", ".wmv"}
 
 PC_NAME = re.compile(r"^[A-Za-z0-9_-]{1,20}$")
 
@@ -68,6 +74,8 @@ class Engine:
         self.room = RoomTracker(self.watchlist)  # CCTV cameras: who is in the room
         self.cctv = {}                         # CCTV camera name -> latest result, thumbnail, timing
         self.last_report = load_json(config.ENROLL_REPORT_FILE, None)   # photo quality + best photo per person
+        self.video_tests = {}                  # id -> VideoTest (this session)
+        self.video_face_app = None             # separate face models for video tests (loaded on first use)
         self.next_cleanup = 0.0
         self.cleanup()
 
@@ -80,6 +88,7 @@ class Engine:
         removed += prune_csv(config.SESSIONS_LOG, "start", config.RETENTION_DAYS)
         removed += prune_csv(config.ALERTS_LOG, "time", config.RETENTION_DAYS)
         removed += prune_csv(ROOM_LOG, "entered", config.RETENTION_DAYS)
+        removed += prune_video_tests(config.VIDEO_TEST_KEEP, config.RETENTION_DAYS)
         if removed:
             print(f"Retention: removed {removed} item(s) older than {config.RETENTION_DAYS} days")
 
@@ -208,6 +217,37 @@ def prune_csv(path, column, days):
     return len(rows) - len(keep)
 
 
+def video_test_dirs():
+    root = config.VIDEO_TEST_DIR
+    return sorted((d for d in root.iterdir() if d.is_dir() and d.name.isdigit()), key=lambda d: d.name) \
+        if root.exists() else []
+
+
+def prune_video_tests(keep, days=0):
+    """Keep only the newest `keep` video test results (and none older than `days`). Returns how many were removed."""
+    dirs = video_test_dirs()
+    cutoff_ms = (time.time() - days * 86400) * 1000 if days else 0
+    old = dirs[:-keep] if keep and len(dirs) > keep else []
+    old += [d for d in dirs if d not in old and int(d.name) < cutoff_ms]
+    for d in old:
+        test = engine.video_tests.get(d.name) if engine else None
+        if test and test.state["status"] in ("queued", "running"):
+            continue
+        shutil.rmtree(d, ignore_errors=True)
+        if engine:
+            engine.video_tests.pop(d.name, None)
+    return len(old)
+
+
+def video_test_state(vid):
+    """Live state of a running test, or the saved summary of a finished one."""
+    test = engine.video_tests.get(vid)
+    if test:
+        return test.snapshot()
+    f = config.VIDEO_TEST_DIR / vid / "summary.json"
+    return json.loads(f.read_text()) if f.exists() else None
+
+
 def enrolled_people():
     root = config.ENROLLMENT_DIR
     if not root.exists():
@@ -234,6 +274,7 @@ def enrollment_changes(report):
 
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = config.VIDEO_MAX_MB * 1024 * 1024
 engine: Engine = None
 
 
@@ -323,6 +364,93 @@ def cctv_thumb(cam):
     if not st or not st.get("thumb"):
         abort(404)
     return Response(st["thumb"], mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.route("/api/video_tests", methods=["POST"])
+def video_test_start():
+    """Upload a video and start testing it: form fields video, profile (cctv|pc), expect (names), fps."""
+    file = request.files.get("video")
+    ext = Path(file.filename or "").suffix.lower() if file else ""
+    if not file or ext not in VIDEO_EXT:
+        return jsonify({"error": "Choose a video file (" + ", ".join(sorted(VIDEO_EXT)) + ")."}), 400
+    if any(t.state["status"] in ("queued", "running") for t in engine.video_tests.values()):
+        return jsonify({"error": "A video is already being tested. Wait for it or stop it first."}), 409
+    vid = str(int(time.time() * 1000))
+    folder = config.VIDEO_TEST_DIR / vid
+    folder.mkdir(parents=True)
+    upload = folder / ("upload" + ext)
+    file.save(upload)
+    enrolled = set(map(str, engine.recognizer.names))
+    expected = [n for n in request.form.get("expect", "").split(",") if n in enrolled]
+    try:
+        fps = max(0.0, min(30.0, float(request.form.get("fps", config.VIDEO_TEST_FPS))))
+    except ValueError:
+        fps = config.VIDEO_TEST_FPS
+    if engine.video_face_app is None:
+        engine.video_face_app = load_face_app()   # its own copy, so live cameras and the test never share a model
+    test = VideoTest(upload, folder, engine.video_face_app, engine.recognizer,
+                     profile="pc" if request.form.get("profile") == "pc" else "cctv",
+                     expected=expected, fps_limit=fps, blur=config.PRIVACY_BLUR,
+                     name=re.sub(r"[^\w .()-]", "_", Path(file.filename).name)[:80])
+    engine.video_tests[vid] = test
+
+    def work():
+        test.run()
+        upload.unlink(missing_ok=True)            # privacy: only the face-blurred result is kept
+        prune_video_tests(config.VIDEO_TEST_KEEP)
+    threading.Thread(target=work, daemon=True).start()
+    return jsonify({"id": vid})
+
+
+@app.route("/api/video_tests")
+def video_test_list():
+    out = []
+    for d in reversed(video_test_dirs()):
+        st = video_test_state(d.name)
+        if st:
+            out.append({"id": d.name, "name": st.get("name"), "status": st.get("status"), "created": st.get("created"),
+                        "seconds": st.get("video", {}).get("seconds"), "profile": st.get("profile")})
+    return jsonify(out)
+
+
+@app.route("/api/video_tests/<vid>")
+def video_test_get(vid):
+    st = video_test_state(vid) if vid.isdigit() else None
+    return jsonify(st) if st else (jsonify({"error": "not found"}), 404)
+
+
+@app.route("/api/video_tests/<vid>/frame.jpg")
+def video_test_frame(vid):
+    test = engine.video_tests.get(vid)
+    if not test or not test.frame_jpg:
+        abort(404)
+    return Response(test.frame_jpg, mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@app.route("/api/video_tests/<vid>/result.webm")
+def video_test_video(vid):
+    if not vid.isdigit():
+        abort(404)
+    return send_from_directory(config.VIDEO_TEST_DIR / vid, "result.webm", mimetype="video/webm")
+
+
+@app.route("/api/video_tests/<vid>/stop", methods=["POST"])
+def video_test_stop(vid):
+    test = engine.video_tests.get(vid)
+    if test:
+        test.cancel()
+    return jsonify({"ok": bool(test)})
+
+
+@app.route("/api/video_tests/<vid>", methods=["DELETE"])
+def video_test_delete(vid):
+    test = engine.video_tests.get(vid)
+    if test and test.state["status"] in ("queued", "running"):
+        return jsonify({"error": "Stop the test first."}), 409
+    if vid.isdigit():
+        shutil.rmtree(config.VIDEO_TEST_DIR / vid, ignore_errors=True)
+        engine.video_tests.pop(vid, None)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/pc/<pc>/thumb")
