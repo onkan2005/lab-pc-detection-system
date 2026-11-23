@@ -34,6 +34,8 @@ from incidents import Incidents
 from room import ROOM_LOG, RoomTracker
 from tracker import Tracker, load_assignments, save_assignments
 from videotest import VideoTest
+from photocheck import check_photo
+from ultralytics import YOLO
 
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".mpg", ".mpeg", ".m4v", ".wmv"}
 
@@ -75,6 +77,7 @@ class Engine:
         self.cctv = {}                         # CCTV camera name -> latest result, thumbnail, timing
         self.last_report = load_json(config.ENROLL_REPORT_FILE, None)   # photo quality + best photo per person
         self.video_tests = {}                  # id -> VideoTest (this session)
+        self.photo_yolo = None                 # YOLO26 for "Check a photo" (loaded on first use)
         self.video_face_app = None             # separate face models for video tests (loaded on first use)
         self.next_cleanup = 0.0
         self.cleanup()
@@ -502,34 +505,17 @@ def process_photo():
 
 @app.route("/api/test_photo", methods=["POST"])
 def test_photo():
+    """Check a photo: the full pipeline on one photo, with the time per step and every measurement."""
     file = request.files.get("photo")
     img = cv2.imdecode(np.frombuffer(file.read(), np.uint8), cv2.IMREAD_COLOR) if file else None
     if img is None:
         return jsonify({"error": "Could not read that image."}), 400
     with engine.lock:
-        faces = detect_faces(engine.face_app, img)
-    rec = engine.recognizer
-    out, results = img.copy(), []
-    thick = max(2, img.shape[1] // 400)
-    for i, face in enumerate(sorted(faces, key=lambda f: f.bbox[0]), 1):
-        x1, y1, x2, y2 = map(int, face.bbox)
-        name, score = rec.identify(face.normed_embedding)
-        per_person = {}
-        if len(rec.names):
-            for n, s in zip(rec.names, rec.embeddings @ face.normed_embedding):
-                per_person[str(n)] = round(max(per_person.get(str(n), -1.0), float(s)), 3)
-        color = (0, 200, 0) if name != "unknown" else (0, 0, 255)
-        cv2.rectangle(out, (x1, y1), (x2, y2), color, thick)
-        cv2.putText(out, f"#{i} {name}", (x1, max(y1 - 10, 30)), cv2.FONT_HERSHEY_SIMPLEX, thick * 0.5, color, thick)
-        results.append({"n": i, "name": str(name), "score": round(score, 3), "width": x2 - x1,
-                        "det_score": round(float(face.det_score), 2),
-                        "per_person": dict(sorted(per_person.items(), key=lambda kv: -kv[1]))})
-    scale = 900 / max(out.shape[:2])
-    if scale < 1:
-        out = cv2.resize(out, None, fx=scale, fy=scale)
-    data = base64.b64encode(cv2.imencode(".jpg", out)[1]).decode()
-    return jsonify({"image": f"data:image/jpeg;base64,{data}", "faces": results,
-                    "threshold": config.MATCH_THRESHOLD})
+        if engine.photo_yolo is None:
+            engine.photo_yolo = YOLO(config.YOLO_MODEL)   # plain detection (no tracking) for single photos
+            engine.photo_yolo.predict(np.zeros((64, 64, 3), np.uint8), verbose=False)   # warm-up: honest timings
+        result = check_photo(img, engine.face_app, engine.photo_yolo, engine.recognizer)
+    return jsonify(result)
 
 
 @app.route("/api/enrollment")

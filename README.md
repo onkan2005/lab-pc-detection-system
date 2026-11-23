@@ -244,6 +244,13 @@ It shrinks every enrolled photo so the face is 160 px (close) down to 24 px (far
 | Recognized correctly | 97% | 97% | 97% | 90% | 69% |
 | Wrong person | 0 | 0 | 0 | 0 | 0 |
 
+**Check a photo** (Students page) runs one photo through the same steps and shows the numbers:
+YOLO26 people (confidence), SCRFD faces with their 5 landmarks, the ArcFace embedding, the cosine
+similarity to every enrolled person against the 0.45 threshold and the margin to the next person, the
+time each step took, the photo's brightness/contrast and histogram, and for each face what decides
+whether a live camera can recognize it: face size (PC ≥ 50 px, CCTV ≥ 24 px), sharpness, head pose
+(yaw/pitch from the landmarks) and whether it is inside a YOLO26 person box.
+
 **Test on a real video** (does a person keep their name when the face is gone?). In the app:
 **Students → Check a video**. Upload a recording, choose the camera type, optionally tick who is really
 in it, and press **Start test**. While it runs you see, live:
@@ -408,6 +415,7 @@ merged them into the right 2 people and kept the names while faces were blurred.
     ├── reset.py                     wipes app data, keeps photos, re-enrolls
     ├── evaluate_lighting.py         low-light experiment
     ├── evaluate_cctv.py             head pose × distance recognition test
+    ├── photocheck.py                Check a photo: every step timed, every measurement
     ├── videotest.py                 video test with live stats (Check a video page)
     ├── evaluate_video.py            the same video test from the command line
     ├── labels.py                    stable 'Unknown person N' numbers

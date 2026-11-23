@@ -1275,30 +1275,63 @@ poll();
 listCams();
 
 /* ================= PHOTO TEST ================= */
+const PH_STEPS = [["preprocess", "Preprocessing (lessons 1-3)", "#a78bfa"], ["yolo", "YOLO26 people", "#3b82f6"],
+  ["face_detect", "SCRFD face detection", "#f59e0b"], ["arcface", "ArcFace embedding", "#ef4444"], ["match", "Matching (cosine similarity)", "#14b8a6"]];
 async function testPhoto(file) {
   if (!file) return;
   $("#photo-result").innerHTML = `<div class="empty">Analyzing…</div>`;
   const fd = new FormData(); fd.append("photo", file);
   const res = await (await fetch("/api/test_photo", {method: "POST", body: fd})).json();
   if (res.error) { $("#photo-result").innerHTML = `<div class="empty">${esc(res.error)}</div>`; return; }
-  $("#photo-img").innerHTML = `<img src="${res.image}" alt="Analyzed photo">`;
+  const ph = res.photo, tm = res.timings, th = res.threshold;
+  const total = PH_STEPS.reduce((a, [k]) => a + (tm[k] || 0), 0);
+  const known = res.faces.filter(f => f.name !== "unknown").length;
+  // photo + histogram (left card)
+  const hmax = Math.max(...ph.hist, 1);
+  $("#photo-img").innerHTML = `<img src="${res.image}" alt="Analyzed photo: gray boxes = YOLO26 people, colored = faces, dots = face landmarks">
+    <div class="muted" style="font-size:13px;margin-top:8px">Gray boxes: YOLO26 people · colored boxes: faces (green = recognized, red = unknown) · yellow dots: the 5 face landmarks ArcFace uses to align the face</div>
+    <div class="muted" style="font-weight:600;margin-top:12px">Intensity histogram (Lesson 3)</div>
+    <div style="display:flex;align-items:flex-end;gap:1px;height:56px;margin-top:4px">${ph.hist.map(v => `<div style="flex:1;background:var(--muted);opacity:.55;height:${Math.max(1, v / hmax * 100)}%"></div>`).join("")}</div>
+    <div class="muted" style="display:flex;justify-content:space-between;font-size:11px"><span>0 (black)</span><span>255 (white)</span></div>`;
+  const tile = (v, k, sub = "") => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
+  let html = `<div class="tiles" style="margin-top:0">` +
+    tile(res.persons.length, "people (YOLO26)", res.persons.map(p => p.conf.toFixed(2)).join(", ") || "none") +
+    tile(res.faces.length, "faces (SCRFD)", ph.padded_retry ? "found after adding a border (close-up)" : "") +
+    tile(`${known}/${res.faces.length}`, "recognized", `${res.enrolled_people} people, ${res.enrolled_photos} photos enrolled`) +
+    tile(Math.round(total) + " ms", "total time", "on this computer's CPU") + `</div>`;
+  html += `<div class="muted" style="font-weight:600;margin-top:14px">Time per step</div>
+    <div class="pipe">${PH_STEPS.map(([k, , c]) => `<div title="${k}: ${tm[k]} ms" style="width:${(tm[k] || 0) / total * 100}%;background:${c}"></div>`).join("")}</div>
+    <div class="pipe-legend">${PH_STEPS.map(([k, l, c]) => `<i style="background:${c}"></i><span>${l}</span><b>${tm[k]} ms</b>`).join("")}</div>
+    <div class="muted" style="font-weight:600;margin-top:14px">The photo</div>
+    <div style="font-size:13px">${ph.width}×${ph.height} px (analyzed at ${ph.analyzed}) · brightness (mean) <b>${ph.brightness}</b> · contrast (std dev) <b>${ph.contrast}</b>` +
+    (ph.corrected.length ? ` → corrected to ${ph.after[0]} / ${ph.after[1]}: ${esc(ph.corrected.join("; "))}` : " · no correction needed") + `</div>`;
   if (!res.faces.length) {
-    $("#photo-result").innerHTML = `<div class="empty">No face found. Common reasons: side view, looking too far down, face blocked, or too dark.</div>`;
-    return;
+    html += `<div class="empty">No face found. Common reasons: back of the head, side view, looking far down, face blocked, too dark or too small.</div>`;
   }
-  const thPct = res.threshold * 100;
-  $("#photo-result").innerHTML = res.faces.map(f => {
+  const yes = (ok, txt) => `<span style="color:${ok ? "var(--ok)" : "var(--bad)"}">${ok ? "✓" : "✗"} ${txt}</span>`;
+  html += res.faces.map(f => {
     const sims = Object.entries(f.per_person).map(([n, v]) => `<div class="sim"><span>${esc(n)}</span>
-      <div class="simbar"><div style="width:${Math.max(0, v) * 100}%;background:${v >= res.threshold ? "var(--ok)" : "var(--muted)"}"></div>
-      <div class="th" style="left:${thPct}%"></div></div><span>${v.toFixed(2)}</span></div>`).join("")
-      || `<div class="empty">Nobody is enrolled yet.</div>`;
+      <div class="simbar"><div style="width:${Math.max(0, v) * 100}%;background:${v >= th ? "var(--ok)" : "var(--muted)"}"></div>
+      <div class="th" style="left:${th * 100}%"></div></div><span>${v.toFixed(2)}</span></div>`).join("") || `<div class="empty">Nobody is enrolled yet.</div>`;
     const verdict = f.name === "unknown"
-      ? `<span class="badge b-bad">unknown</span> best score ${f.score.toFixed(2)} is below ${res.threshold}`
-      : `<span class="badge b-ok">${esc(f.name)}</span> best score ${f.score.toFixed(2)} ≥ ${res.threshold}`;
-    return `<div style="margin-bottom:18px"><div><b>Face #${f.n}</b> · ${verdict}</div>
-      <div class="muted">Face ${f.width}px wide · detection confidence ${f.det_score}</div>
-      <div style="margin-top:8px" class="muted">Similarity to each enrolled person (line = threshold):</div>${sims}</div>`;
+      ? `<span class="badge b-bad">unknown</span> best ${esc(f.best_name)} ${f.score.toFixed(2)} &lt; ${th}`
+      : `<span class="badge b-ok">${esc(f.name)}</span> ${f.score.toFixed(2)} ≥ ${th}`;
+    const c = f.checks, lim = res.limits;
+    return `<div style="border-top:1px solid var(--border);margin-top:16px;padding-top:14px">
+      <div><b>Face #${f.n}</b> · ${verdict}${f.same_photo ? ` <span class="muted">(almost identical to an enrolled photo: probably that same photo)</span>` : ""}</div>
+      <table class="calc" style="margin-top:8px">
+        <tr><td class="muted">Face size</td><td>${f.width} px wide</td><td>${yes(c.pc_size, `PC camera needs ≥ ${lim.pc_face}`)} · ${yes(c.cctv_size, `CCTV ≥ ${lim.cctv_face}`)}</td></tr>
+        <tr><td class="muted">SCRFD confidence</td><td>${f.det_score}</td><td class="muted">how sure the detector is that this is a face</td></tr>
+        <tr><td class="muted">Sharpness</td><td>${f.sharpness}</td><td>${yes(c.sharp, `≥ ${lim.sharpness} (variance of the Laplacian)`)}</td></tr>
+        <tr><td class="muted">Head pose</td><td>${esc(f.pose.label)}</td><td class="muted">yaw ${f.pose.yaw} (0 = facing the camera) · pitch ${f.pose.pitch} (≈0.5 = straight)</td></tr>
+        <tr><td class="muted">YOLO26 person</td><td>${f.in_person ? `conf ${f.in_person.conf.toFixed(2)}` : "–"}</td><td>${yes(c.in_person, "face is inside a person box (the live system only looks there)")}</td></tr>
+        <tr><td class="muted">ArcFace</td><td>512 numbers</td><td class="muted">first 8: ${f.embedding_preview.join(", ")} …</td></tr>
+        <tr><td class="muted">Best vs next</td><td>${f.score.toFixed(2)} vs ${f.second != null ? f.second.toFixed(2) : "–"}</td><td class="muted">${f.name === "unknown" ? "nobody reaches the threshold, so this is someone not enrolled"
+          : f.margin != null ? `margin ${f.margin.toFixed(2)}: ${f.margin > 0.2 ? "clear winner" : "close call: two people look alike to ArcFace"}` : "only one person enrolled"}</td></tr>
+      </table>
+      <div style="margin-top:8px" class="muted">Cosine similarity to each enrolled person (their best-matching photo; ${f.photos_compared} enrolled photos compared; line = threshold ${th}):</div>${sims}</div>`;
   }).join("");
+  $("#photo-result").innerHTML = html;
 }
 /* ================= VIDEO TEST: live view of the whole pipeline on a recorded video ================= */
 const VT_COLORS = {preprocess: "#a78bfa", yolo: "#3b82f6", reid: "#14b8a6", face_detect: "#f59e0b", arcface: "#ef4444"};
