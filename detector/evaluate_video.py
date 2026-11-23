@@ -125,6 +125,7 @@ def main():
     rooms["without"]._continue_unknown = lambda *a: None     # old behaviour, for comparison
 
     rows, prev = [], None
+    last_lbl, label_changes, highest = {}, {"stable": 0, "by position": 0}, 0
     for i, frame in enumerate(frames):
         clock.now = i / fps
         result = analyze(frame, cam, face_app, rec)
@@ -151,7 +152,18 @@ def main():
         shown = blur_faces(frame.copy(), people) if not args.no_blur else frame.copy()
         # Same labels as the app: names, or "Unknown person 1..N" numbered by position in THIS frame,
         # so the numbers never go above the number of people in view (the internal re-ID number is not shown)
-        for p in rooms["with"].describe("CAM", people, clock.now):
+        described = rooms["with"].describe("CAM", people, clock.now)
+        # label stability: does a person's label change from one frame to the next while they stay in view?
+        unnamed = sorted((p for p in described if p["name"] in UNNAMED), key=lambda p: p["box"][0])
+        by_pos = {p["id"]: k + 1 for k, p in enumerate(unnamed)}            # the old numbering, for comparison
+        for p in unnamed:
+            now_lbl = (p["display"], by_pos[p["id"]])
+            if p["id"] in last_lbl:
+                label_changes["stable"] += now_lbl[0] != last_lbl[p["id"]][0]
+                label_changes["by position"] += now_lbl[1] != last_lbl[p["id"]][1]
+            highest = max(highest, int(p["display"].split()[-1]) if p["display"][-1].isdigit() else 1)
+        last_lbl = {p["id"]: (p["display"], by_pos[p["id"]]) for p in unnamed}
+        for p in described:
             ok = p["name"] in expected
             color = (60, 180, 60) if ok else (60, 60, 220) if p["name"] not in UNNAMED else (150, 150, 150)
             x1, y1, x2, y2 = p["box"]
@@ -200,6 +212,9 @@ def main():
     for label, rt in rooms.items():
         print(f"UNKNOWN_IN_ROOM alerts ({label} unknown-timer continuation): {room_alerts[label]}"
               + (f"  (really {args.people} unknown people)" if args.people and not expected else ""))
+    print(f"'Unknown person N' labels: highest N shown {highest} (most people in view {max(r['persons'] for r in rows)}); "
+          f"label changed while the person stayed in view: {label_changes['stable']} times "
+          f"(numbering by position would have changed {label_changes['by position']} times)")
     print("Names given: " + (", ".join(f"{n} ({c} frames)" for n, c in names.items()) or "none")
           + (f"  <- WRONG: {wrong}" if wrong else ""))
     if expected:

@@ -8,22 +8,23 @@ import time
 import cv2
 
 from detection import UNIDENTIFIED
+from labels import StableNumbers
 
 COLORS = {"ok": "#1f9d55", "checking": "#f08c00", "alert": "#e03131", "bystander": "#868e96"}
+_numbers = StableNumbers()   # "Unknown person N" numbers, per PC camera
 
 
 def describe(pc, result, tracker, t):
     """For each person: what to show. Returns the people with "label", "color", "kind" and rule status added."""
-    # People are shown by who they ARE, not by a running number: an enrolled student by name, anyone
-    # else as "Unknown person". Only when several unrecognized people are in view at the same time
-    # are they numbered, by their position in the current frame (left to right), starting at 1.
-    unnamed = sorted((p for p in result["people"] if p["name"] in (UNIDENTIFIED, "unknown")),
-                     key=lambda p: p["box"][0])
-    slot = {id(p): i + 1 for i, p in enumerate(unnamed)} if len(unnamed) > 1 else {}
+    # People are shown by who they ARE: an enrolled student by name, anyone else as "Unknown person N".
+    # N stays with that person while they are in view and is reused after they leave (labels.py), so it
+    # never grows past the number of people around and does not jump when people move.
+    unnamed = [p for p in result["people"] if p["name"] in (UNIDENTIFIED, "unknown")]
+    slot = _numbers.assign(pc, unnamed, t)
     out = []
     for p in result["people"]:
         name = p["name"]
-        n = f" {slot[id(p)]}" if id(p) in slot else ""
+        n = f" {slot[p['id']]}" if p["id"] in slot else ""
         who = f"Unknown person{n}" if name in ("unknown", UNIDENTIFIED) else name
         if p.get("reid") and name not in (UNIDENTIFIED, "unknown"):
             who += f" (by {p.get('clothes', '')} clothes)"   # face hidden: kept by appearance re-ID

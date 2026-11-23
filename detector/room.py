@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 import config
 from detection import UNIDENTIFIED
+from labels import StableNumbers
 
 ROOM_LOG = config.DATA_DIR / "room_log.csv"
 UNNAMED = (UNIDENTIFIED, "unknown")
@@ -29,6 +30,7 @@ class RoomTracker:
         self.last_frame = {}      # cam -> t
         self.fired = set()
         self.new_alerts = []
+        self.numbers = StableNumbers()
         if not ROOM_LOG.exists():
             with open(ROOM_LOG, "w", newline="") as f:
                 csv.writer(f).writerow(["name", "camera", "entered", "left", "minutes"])
@@ -119,12 +121,12 @@ class RoomTracker:
 
     def describe(self, cam, people, t):
         """Labels for the CCTV page: everyone is shown (no PC user / bystander split)."""
-        unnamed = sorted((p for p in people if p["name"] in UNNAMED), key=lambda p: p["box"][0])
-        slot = {id(p): i + 1 for i, p in enumerate(unnamed)} if len(unnamed) > 1 else {}
+        # "Unknown person N": N stays with the person while in view, reused after they leave (labels.py)
+        slot = self.numbers.assign(cam, [p for p in people if p["name"] in UNNAMED], t)
         out = []
         for p in people:
             name = p["name"]
-            n = f" {slot[id(p)]}" if id(p) in slot else ""
+            n = f" {slot[p['id']]}" if p["id"] in slot else ""
             if name in UNNAMED:
                 v = self.unknown.get((cam, p["id"]))
                 seconds = round(t - v["first"]) if v else 0

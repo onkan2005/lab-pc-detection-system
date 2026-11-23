@@ -336,6 +336,13 @@ while their face is hidden. `reid.py` keeps a **short-term appearance memory** p
   says it is someone else splits them apart (e.g. same school uniform). A **blurred or turned face**
   (measured with image sharpness, the variance of the Laplacian) does not override who the clothes say it is.
 
+**How people are numbered on screen.** Enrolled students are shown by name. Anyone else is
+`Unknown person N`, where N stays with that person while they are in view and is reused by the next
+person after they leave (`labels.py`). So the numbers stay as small as the number of people around and
+do not jump when people walk past each other. On the EPFL 6-person lab video: highest number shown 7
+(at most 6 people in view), and a person's number changed **0 times** while they stayed in view
+(numbering by position in the frame would have changed 864 times).
+
 Tested with two enrolled students: the tracker produced 4 different track IDs, re-identification
 merged them into the right 2 people and kept the names while faces were blurred. Thresholds are in
 `config.py` (`REID_*`, `FACE_SHARPNESS_MIN`); re-check them after the whole group is enrolled.
