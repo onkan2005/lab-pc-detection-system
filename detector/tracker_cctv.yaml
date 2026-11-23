@@ -1,0 +1,16 @@
+# Tracker for CCTV (room) cameras: BoT-SORT for a FIXED camera (no camera-motion compensation) that keeps
+# lost tracks for 90 frames (people walk behind each other for longer in a room than at a PC).
+# On the EPFL 6-person lab video (crowded 48 s) it started 36 tracks vs 43 for the default ByteTrack,
+# at the same speed (evaluate_video.py). PC cameras keep ultralytics' default bytetrack.yaml.
+tracker_type: botsort
+track_high_thresh: 0.25
+track_low_thresh: 0.1
+new_track_thresh: 0.25
+track_buffer: 90
+match_thresh: 0.8
+fuse_score: True
+gmc_method: none
+proximity_thresh: 0.5
+appearance_thresh: 0.8
+with_reid: False
+model: auto

@@ -15,6 +15,7 @@ Per frame:
   5. The name is remembered per track ID, so a person who turns away keeps their name;
      it is re-checked every RECOGNIZE_EVERY seconds.
 """
+import math
 import time
 
 import cv2
@@ -34,7 +35,8 @@ PC_PROFILE = {"width": config.DETECT_WIDTH, "yolo": config.YOLO_IMGSZ,
               "face": config.LIVE_FACE_DET_SIZE, "min_face": config.MIN_FACE_PX}
 CCTV_PROFILE = {"width": config.CCTV_DETECT_WIDTH, "yolo": config.CCTV_YOLO_IMGSZ,
                 # the face detector runs on each person's crop, enlarged to 640 px so small faces are found
-                "face": 640, "min_face": config.CCTV_MIN_FACE_PX}
+                "face": 640, "min_face": config.CCTV_MIN_FACE_PX,
+                "tracker": str(config.BASE_DIR / "tracker_cctv.yaml")}
 
 
 def new_camera(profile=PC_PROFILE):
@@ -105,8 +107,12 @@ def analyze(frame, cam, face_app, recognizer):
     now = time.monotonic()
 
     # 1-2. YOLO26 person detection + ByteTrack IDs
-    det = cam["yolo"].track(small, persist=True, tracker="bytetrack.yaml", classes=[0],
-                            conf=config.YOLO_CONF, imgsz=prof["yolo"], verbose=False)[0]
+    # YOLO input size: the profile's size, but never much bigger than the camera image itself. Blowing a
+    # low-resolution CCTV frame up only makes it blurry: on a 384-px CCTV video YOLO26 found the person in
+    # 126/145 frames at 480 px, 119 at 640, 95 at 960 (measured with evaluate_video.py test clips).
+    imgsz = min(prof["yolo"], max(320, math.ceil(small.shape[1] * 1.25 / 32) * 32))
+    det = cam["yolo"].track(small, persist=True, tracker=prof.get("tracker", "bytetrack.yaml"), classes=[0],
+                            conf=prof.get("conf", config.YOLO_CONF), imgsz=imgsz, verbose=False)[0]
     boxes = det.boxes.xyxy.tolist()
     # Tamper check: almost no detail AND YOLO sees nobody. (A dim room still has detail and people,
     # so it is not mistaken for a covered lens.)

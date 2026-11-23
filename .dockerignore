@@ -18,6 +18,8 @@ data/
 **/*.webm
 **/*.mkv
 **/*.m4v
+**/*.mpg
+**/*.mpeg
 test_videos/
 
 # AI tooling and AI-generated notes

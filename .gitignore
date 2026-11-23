@@ -21,6 +21,8 @@ data/
 *.webm
 *.mkv
 *.m4v
+*.mpg
+*.mpeg
 # Test videos (public samples or your own recordings) and the annotated results
 test_videos/
 

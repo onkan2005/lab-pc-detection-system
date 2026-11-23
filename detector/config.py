@@ -72,6 +72,7 @@ CCTV_YOLO_IMGSZ = 960
 CCTV_FACE_DET_SIZE = 960             # whole-frame face detector size (evaluate_cctv.py)
 CCTV_MIN_FACE_PX = 24             # smaller faces are not recognized reliably (see evaluate_cctv.py)
 CCTV_UNKNOWN_SEC = 30             # an unknown person in the room this long -> incident
+UNKNOWN_CONTINUE_SEC = 5          # an unknown person who reappears as "new" within this keeps their timer
 CCTV_LOG_GAP = 60                 # not seen for this long = left the room (written to the room log)
 
 # --- Face recognition ---

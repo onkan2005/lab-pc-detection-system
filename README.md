@@ -250,10 +250,19 @@ python evaluate_video.py ../test_videos/my_clip.mp4 --expect juan,maria       # 
 python evaluate_video.py ../test_videos/faceocc2.webm --enroll tester          # a public sample, person enrolled temporarily
 ```
 
-It runs every frame through the same pipeline as the app and saves an annotated video plus a CSV in
-`test_videos/` (ignored by Git and Docker). On OpenCV's `faceocc2` sample with the face covered for 20 s and
-the person leaving and coming back: **95% of the frames without any visible face still had the right name**
-(by YOLO tracking or by clothes), and no frame ever had a wrong name.
+It runs every frame through the same pipeline as the app (including the room rules) and saves an annotated
+video plus CSV files in `test_videos/` (ignored by Git and Docker). Results on public test videos:
+
+| Video | What it tests | Result |
+|---|---|---|
+| OpenCV `faceocc2`, face covered for 20 s, person leaves and returns | name kept without a face | **100%** of 473 no-face frames had the right name, 0 wrong names |
+| EPFL lab, 6 people walking for 2 min (360×288 CCTV) | tracking in a crowded room | faces too small to recognize (found in 1% of boxes); 42 identities for 6 people; 7 "unknown in room" alerts for 6 strangers |
+| CAVIAR shop corridor, person leaves and re-enters (384×288) | re-entry | 2 identities for 2 people |
+
+What this means: when people walk behind each other for seconds, nobody can be followed by motion alone;
+the system then needs a face (or very distinct clothes) to know who it is again. It never guesses: in
+all tests no one was ever given another person's name. For a lab, use a camera of 1080p placed so that
+faces are at least ~32 px wide (see the table above), so names come back whenever someone looks up.
 
 Turned faces (left/right) were recognized at every size; looking down failed most when far away. Faces
 narrower than about 32 px (a person across a big room on a 720p camera) are unreliable: use a

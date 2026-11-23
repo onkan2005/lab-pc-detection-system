@@ -76,6 +76,8 @@ class RoomTracker:
             else:
                 key, store = (cam, p["name"]), self.visits
             v = store.get(key)
+            if v is None and store is self.unknown:
+                v = self._continue_unknown(cam, key, t, {q["id"] for q in people})
             if v is None or t - v["last"] > config.CCTV_LOG_GAP:
                 if v is not None and store is self.visits:
                     self._log_visit(cam, p["name"], v)
@@ -99,6 +101,22 @@ class RoomTracker:
             if t - v["last"] > config.CCTV_LOG_GAP:
                 del self.unknown[key]
 
+    def _continue_unknown(self, cam, key, t, present):
+        """In a crowded room YOLO loses people behind others, and an unknown person can come back as a
+        "new" unknown person. Then the timer would restart and the UNKNOWN_IN_ROOM alert might never
+        fire. So a new unknown person continues the timer of an unknown person who vanished from this
+        camera in the last UNKNOWN_CONTINUE_SEC seconds (and is not in view right now)."""
+        gone = [(k, v) for k, v in self.unknown.items()
+                if k[0] == cam and k[1] not in present and 0 < t - v["last"] <= config.UNKNOWN_CONTINUE_SEC]
+        if not gone:
+            return None
+        k, v = max(gone, key=lambda kv: kv[1]["last"])   # the one who vanished most recently
+        del self.unknown[k]
+        self.unknown[key] = v
+        old, new = f"unknown-{k[1]}", f"unknown-{key[1]}"
+        self.fired = {(f[0], f[1], new) if f[1:] == (cam, old) else f for f in self.fired}
+        return v
+
     def describe(self, cam, people, t):
         """Labels for the CCTV page: everyone is shown (no PC user / bystander split)."""
         unnamed = sorted((p for p in people if p["name"] in UNNAMED), key=lambda p: p["box"][0])
@@ -121,7 +139,8 @@ class RoomTracker:
                 v = self.visits.get((cam, name))
                 seconds = round(t - v["first"]) if v else 0
                 who = name
-                how = f"kept by {p.get('clothes', '')} clothes" if p.get("reid") else "face"
+                how = (f"kept by {p.get('clothes', '')} clothes" if p.get("reid")
+                       else "face" if p.get("face_box") else "kept by tracking (face not visible now)")
                 if name in self.watchlist:
                     kind, label = "alert", f"WATCHLIST: {name}"
                 else:
