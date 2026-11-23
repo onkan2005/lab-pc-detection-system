@@ -149,7 +149,9 @@ def main():
                      "name": name, "kept_by": how if not face else "face", "verdict": verdict})
 
         shown = blur_faces(frame.copy(), people) if not args.no_blur else frame.copy()
-        for p in people:
+        # Same labels as the app: names, or "Unknown person 1..N" numbered by position in THIS frame,
+        # so the numbers never go above the number of people in view (the internal re-ID number is not shown)
+        for p in rooms["with"].describe("CAM", people, clock.now):
             ok = p["name"] in expected
             color = (60, 180, 60) if ok else (60, 60, 220) if p["name"] not in UNNAMED else (150, 150, 150)
             x1, y1, x2, y2 = p["box"]
@@ -157,12 +159,12 @@ def main():
             if p["face_box"]:
                 fx1, fy1, fx2, fy2 = p["face_box"]
                 cv2.rectangle(shown, (fx1, fy1), (fx2, fy2), color, 1)
-            label = (f"Person {p['id']}" if p["name"] in UNNAMED else p["name"]) + \
+            label = p["display"] + \
                     (" [face]" if p["face_box"] and not p["reid"] else " [no face: kept by " + ("clothes]" if p["reid"] else "track]"))
             ty = y1 if y1 >= 16 else y1 + 16       # box at the top edge: put the label inside it
             cv2.rectangle(shown, (x1, ty - 16), (x1 + 7 * len(label), ty), color, -1)
             cv2.putText(shown, label, (x1 + 3, ty - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1, cv2.LINE_AA)
-        cv2.putText(shown, f"frame {i}  YOLO26 people: {len(people)}", (6, h - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
+        cv2.putText(shown, f"frame {i}  people in view: {len(people)}", (6, h - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
                     (0, 255, 255), 1, cv2.LINE_AA)
         writer.write(shown)
         if name != prev and i and expected:
