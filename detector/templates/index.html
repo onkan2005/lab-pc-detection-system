@@ -218,6 +218,9 @@
   .station .tools { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
   .icon-btn { min-height: 32px; width: 32px; padding: 0; justify-content: center; }
   .icon-btn .icon { margin: 0; }
+  .station .rm { color: var(--bad); } .station .rm:hover { background: var(--bad-bg); }
+  .station .rm:disabled { opacity: .35; cursor: default; background: var(--card); }
+  .station .pcname.dup { color: var(--warn); }
   /* minimized: one line (camera keeps running and detecting; only the picture is folded away) */
   .station.min .controls, .station.min .station-body { height: 0; overflow: hidden; margin: 0; }
   .station.min .head { margin-bottom: 0; }
@@ -383,8 +386,8 @@
       <div class="cam-toolbar">
         <span class="lbl">Per row</span>
         <div class="filters" role="group" aria-label="Cameras per row" id="cam-cols"></div>
-        <button class="btn" id="cam-min-all"><svg class="icon"><use href="#i-min"/></svg>Minimize all</button>
-        <button class="btn" id="cam-max-all"><svg class="icon"><use href="#i-expand"/></svg>Expand all</button>
+        <button class="btn ghost" id="cam-min-all"><svg class="icon"><use href="#i-min"/></svg>Minimize all</button>
+        <button class="btn ghost" id="cam-max-all"><svg class="icon"><use href="#i-expand"/></svg>Expand all</button>
         <span class="lbl" id="cam-count"></span>
       </div>
       <div class="cam-jump" id="cam-jump" aria-label="Jump to a camera"></div>
@@ -451,7 +454,7 @@
       </div>
       <div class="alarm calm" id="enroll-pending" role="status" style="display:none">
         <span class="txt" style="flex:1"></span>
-        <button class="btn" id="enroll-now">Enroll now</button>
+        <button class="btn ghost" id="enroll-now">Enroll now</button>
       </div>
       <div class="msg" id="enroll-msg" role="status" style="margin:-8px 0 12px"></div>
       <div class="card"><div id="people"></div></div>
@@ -489,7 +492,7 @@
             <div class="field">Who is really in the video? <span class="muted" style="font-weight:400">(optional: then it can tell right from wrong names)</span>
               <div class="chips" id="vt-expect"><span class="muted">Nobody enrolled yet.</span></div></div>
             <div class="row"><button class="btn primary" id="vt-start" disabled>Start test</button>
-              <button class="btn" id="vt-stop" style="display:none">Stop</button>
+              <button class="btn ghost" id="vt-stop" style="display:none">Stop</button>
               <span class="msg" id="vt-msg" role="status"></span></div>
           </div>
         </div>
@@ -522,7 +525,7 @@
         <p class="muted" style="margin-top:-6px">Measured on the enrolled photos: each photo is recognized against the others (should get its own name),
           and each student is removed in turn so their photos act as strangers (should be rejected). Add face photos of people who are
           <b>not</b> enrolled to <code>data/strangers/</code> for a bigger stranger test.</p>
-        <button class="btn" id="acc-run">Measure accuracy</button>
+        <button class="btn ghost" id="acc-run">Measure accuracy</button>
         <div id="acc-out"></div>
       </div>
     </section>
@@ -549,7 +552,7 @@
         <div><h1 id="h-log">Usage log</h1>
           <p id="log-intro">Every person every PC camera saw, one row per visit. A visit ends when the person has been gone for 2 minutes,
             so coming back later starts a new row; shorter absences are counted as breaks.</p></div>
-        <button class="btn" id="log-export">Export CSV</button>
+        <button class="btn ghost" id="log-export">Export CSV</button>
       </div>
       <div class="filters" role="tablist" aria-label="Kind of visit" id="log-tabs"></div>
       <div class="card" style="margin-top:12px">
@@ -567,7 +570,7 @@
           <label class="field">Alerts <select id="lf-alerts"><option value="">Any</option><option value="yes">With alerts</option><option value="no">No alerts</option></select></label>
           <label class="field">Sort <select id="lf-sort"><option value="start">Newest first</option><option value="duration">Longest first</option>
             <option value="name">Name</option><option value="pc">PC</option></select></label>
-          <button class="btn" id="lf-reset" style="align-self:flex-end">Clear filters</button>
+          <button class="btn ghost" id="lf-reset" style="align-self:flex-end">Clear filters</button>
         </div>
         <div class="tiles" id="log-tiles"></div>
         <div class="table-wrap" id="sessions" style="margin-top:14px"></div>
@@ -784,9 +787,9 @@ class Station {
       <div class="head"><h2><svg class="icon"><use href="#i-camera"/></svg>Camera ${index + 1} <span class="pcname"></span></h2>
         <span class="mini">Camera off</span>
         <div class="tools"><span class="badge b-off state">Off</span>
-          <button class="btn icon-btn minb" title="Minimize" aria-label="Minimize"><svg class="icon"><use href="#i-min"/></svg></button>
-          <button class="btn icon-btn maxb" title="Maximize" aria-label="Maximize"><svg class="icon"><use href="#i-max"/></svg></button>
-          ${index ? `<button class="btn danger icon-btn rm" title="Remove this camera" aria-label="Remove this camera"><svg class="icon"><use href="#i-x"/></svg></button>` : ""}</div></div>
+          <button class="btn ghost icon-btn minb" title="Minimize" aria-label="Minimize"><svg class="icon"><use href="#i-min"/></svg></button>
+          <button class="btn ghost icon-btn maxb" title="Maximize" aria-label="Maximize"><svg class="icon"><use href="#i-max"/></svg></button>
+          <button class="btn ghost icon-btn rm" title="Remove this camera" aria-label="Remove this camera"><svg class="icon"><use href="#i-x"/></svg></button></div></div>
       <div class="controls">
         <label class="field">This camera is PC <select class="pc"></select></label>
         <label class="field">Camera device <select class="cam"><option value="">Default camera</option></select></label>
@@ -819,7 +822,8 @@ class Station {
       this.renderAssigned(); renderCamJump();
     };
     this.q(".cam").onchange = () => store.set(`cam${this.i}`, this.q(".cam").value);
-    if (this.q(".rm")) this.q(".rm").onclick = () => {
+    this.q(".rm").onclick = () => {
+      if (stations.length < 2) return;   // keep at least one camera panel
       this.stop(); el.remove(); stations.splice(stations.indexOf(this), 1);
       store.set("stations", String(stations.length)); renderCamJump();
     };
@@ -876,7 +880,7 @@ class Station {
   }
 
   renderAssigned() {
-    if (this.q(".pcname")) this.q(".pcname").textContent = this.q(".pc").value;
+    if (this.q(".pcname")) renderCamJump();   // PC name in the header (and the duplicate-PC warning)
     if (!state) return;
     const box = this.q(".assigned"), html = summaryHtml(this.q(".pc").value);
     if (box.innerHTML !== html) box.innerHTML = html;
@@ -1084,6 +1088,16 @@ function renderCamJump() {   // batched: cameras update their state every frame
       `<span class="dot" style="background:${dot[s.status] || "var(--muted)"}"></span>${esc(s.q(".pc").value || "Camera " + (s.i + 1))}` +
       `${s.el.classList.contains("min") ? ` <span class="n">min</span>` : ""}</button>`).join("") : "";
     if ($("#cam-jump").innerHTML !== html) $("#cam-jump").innerHTML = html;
+    const count = {};
+    stations.forEach(s => { const pc = s.q(".pc").value; count[pc] = (count[pc] || 0) + 1; });
+    stations.forEach(s => {
+      s.q(".rm").disabled = stations.length < 2;
+      s.q(".rm").title = stations.length < 2 ? "The last camera can't be removed" : "Remove this camera";
+      const pc = s.q(".pc").value, el = s.q(".pcname"), dup = count[pc] > 1;
+      el.classList.toggle("dup", dup);
+      el.textContent = dup ? `${pc} · also on another camera` : pc;
+      el.title = dup ? "Two camera panels are set to the same PC: pick a different PC for one of them" : "";
+    });
     const live = stations.filter(s => s.on).length;
     $("#cam-count").textContent = `${stations.length} camera${stations.length === 1 ? "" : "s"} · ${live} running`;
   });
