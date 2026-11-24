@@ -1278,7 +1278,23 @@ function renderEnrollPending(s) {
   lastPendingKey = key;
 }
 
+/* After reset.py: forget this browser's camera setup too (which PC each camera panel is, which webcam,
+   how many panels, the CCTV camera's name), stop the cameras and reload, so the old PCs don't come back. */
+function checkReset(s) {
+  const seen = store.get("reset_id");
+  if (seen === null || seen === s.reset_id) { store.set("reset_id", s.reset_id); return false; }
+  try {
+    Object.keys(localStorage).filter(k => /^(pc|cam)\d+$/.test(k) || ["stations", "cctv-name", "cctv-cam", "pcFilter"].includes(k))
+      .forEach(k => localStorage.removeItem(k));
+  } catch (e) {}
+  store.set("reset_id", s.reset_id);
+  stations.forEach(st => st.on && st.stop());
+  location.reload();
+  return true;
+}
+
 function render(s) {
+  if (checkReset(s)) return;
   state = s;
   vtFillExpect();
   const online = s.pcs.filter(p => p.online).length;

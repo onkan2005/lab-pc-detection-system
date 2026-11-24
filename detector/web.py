@@ -337,6 +337,7 @@ def state():
     t, tr = engine.now(), engine.tracker
     return jsonify({
         "clock": tr.stamp(t), "pcs": engine.overview(), "assignments": engine.assignments,
+        "reset_id": str(engine.reset_mark or ""),   # changes when reset.py runs: the page then forgets its cameras
         "people": sorted(set(engine.recognizer.names)), "watchlist": engine.watchlist,
         "enroll_pending": enrollment_changes(engine.last_report),
         "incidents": engine.incidents.recent(), "open_incidents": engine.incidents.open_count(),
