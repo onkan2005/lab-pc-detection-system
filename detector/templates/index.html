@@ -468,6 +468,14 @@
         </div>
         <div style="margin-top:16px"><div class="muted" style="font-weight:600;margin-bottom:6px">Recent tests</div><div id="vt-recent"></div></div>
       </div>
+      <div class="card" style="margin-top:18px" id="acc">
+        <h2>Recognition accuracy <span class="muted" id="acc-sub"></span></h2>
+        <p class="muted" style="margin-top:-6px">Measured on the enrolled photos: each photo is recognized against the others (should get its own name),
+          and each student is removed in turn so their photos act as strangers (should be rejected). Add face photos of people who are
+          <b>not</b> enrolled to <code>data/strangers/</code> for a bigger stranger test.</p>
+        <button class="btn" id="acc-run">Measure accuracy</button>
+        <div id="acc-out"></div>
+      </div>
     </section>
 
     <!-- PCS -->
@@ -1073,7 +1081,8 @@ pollCctv();
 
 /* ================= CONSOLE ================= */
 const TYPE_LABEL = {WATCHLIST: "WATCHLIST", UNAUTHORIZED: "UNAUTHORIZED", WRONG_SEAT: "WRONG PC",
-                    CROWDING: "CROWDING", ABSENT: "ABSENT", CAMERA_BLOCKED: "CAMERA BLOCKED", UNKNOWN_IN_ROOM: "UNKNOWN IN ROOM"};
+                    CROWDING: "CROWDING", ABSENT: "ABSENT", CAMERA_BLOCKED: "CAMERA BLOCKED", UNKNOWN_IN_ROOM: "UNKNOWN IN ROOM",
+                    SPOOF: "PHOTO / PHONE SPOOF", NO_BLINK: "NO BLINK (PHOTO?)"};
 const STATUS_LABEL = {open: "Open", dispatched: "Technician sent", resolved: "Resolved", false_alarm: "False alarm"};
 let knownIncidents = null, soundOn = true, audioCtx = null;
 
@@ -1152,6 +1161,10 @@ function renderPCs(s) {
     if (p.online && p.persons >= c.CROWD_COUNT) tr += `<span class="pill warn">${p.persons} people</span>`;
     if (p.absent_alert) tr += `<span class="pill alert">Absent</span>`;
     const assigned = p.assigned.length ? p.assigned.join(", ") : "nobody assigned";
+    // assigned student not at this PC but just seen by another camera (CCTV or another PC)
+    if (p.online && p.elsewhere && p.elsewhere.length && !(u && u.state === "ok"))
+      extra += `<div class="sub" style="color:#FBBF24">${p.elsewhere.map(e =>
+        `${esc(e.name)} is in the room (${esc(e.camera)}, ${fmt(e.ago)} ago), not at this PC`).join("<br>")}</div>`;
     const alerting = p.covered || (u && u.alert) || p.absent_alert;
     const shot = p.online && p.has_thumb
       ? `<img src="/api/pc/${encodeURIComponent(p.pc)}/thumb?ts=${Date.now()}" alt="${esc(p.pc)} camera view">`
@@ -1334,8 +1347,70 @@ async function testPhoto(file) {
   $("#photo-result").innerHTML = html;
 }
 /* ================= VIDEO TEST: live view of the whole pipeline on a recorded video ================= */
-const VT_COLORS = {preprocess: "#a78bfa", yolo: "#3b82f6", reid: "#14b8a6", face_detect: "#f59e0b", arcface: "#ef4444"};
-const VT_STEPS = ["preprocess", "yolo", "reid", "face_detect", "arcface"];   // pipeline order
+const VT_COLORS = {preprocess: "#a78bfa", yolo: "#3b82f6", reid: "#14b8a6", face_detect: "#f59e0b", liveness: "#ec4899", arcface: "#ef4444"};
+/* ---- Recognition accuracy (evaluate_accuracy.py): recall, false accepts, precision per threshold ---- */
+async function accRun() {
+  const btn = $("#acc-run"); btn.disabled = true; btn.textContent = "Measuring…";
+  try {
+    const r = await (await fetch("/api/accuracy")).json();
+    if (r.error) { $("#acc-out").innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+    const c = r.current, tr = r.trials, sc = r.scores;
+    $("#acc-sub").textContent = `${r.people.length} people, ${r.photos} photos, ${tr.enrolled} + ${tr.left_out + tr.strangers} tests`;
+    const tile = (v, k, sub = "") => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
+    const pc = v => v == null ? "–" : v + "%";
+    let h = `<div class="tiles">` +
+      tile(pc(c.recall), "enrolled faces named right", `${c.right} of ${c.right + c.unknown + c.wrong}`) +
+      tile(pc(c.far), "strangers given a name", `${c.false_accept} of ${c.rejected + c.false_accept} (false accept rate)`) +
+      tile(pc(c.wrong_rate), "given another student's name", `${c.wrong} faces`) +
+      tile(pc(c.precision), "precision", "names given that were right") +
+      tile(pc(c.accuracy), "accuracy", `at threshold ${r.threshold}`) +
+      tile(r.margin != null ? r.margin.toFixed(2) : "–", "safety margin", `threshold − most similar stranger (${sc.impostor_max})`) + `</div>`;
+    // score distributions: strangers (red) vs enrolled students (green), threshold line
+    const W = 640, H = 150, lo = -0.2, hi = 1.0, nb = 48, bw = (hi - lo) / nb;
+    const bin = a => { const b = new Array(nb).fill(0); a.forEach(v => b[Math.min(nb - 1, Math.max(0, Math.floor((v - lo) / bw)))]++); return b; };
+    const g = bin(sc.genuine), im = bin(sc.impostor), mx = Math.max(1, ...g, ...im), x = v => (v - lo) / (hi - lo) * W;
+    const bars = (b, col) => b.map((n, k) => n ? `<rect x="${x(lo + k * bw) + 1}" y="${H - 18 - n / mx * (H - 30)}" width="${W / nb - 2}" height="${n / mx * (H - 30)}" fill="${col}" opacity=".75"><title>${n} face(s), ${(lo + k * bw).toFixed(2)}–${(lo + (k + 1) * bw).toFixed(2)}</title></rect>` : "").join("");
+    h += `<h3 style="font-size:14px;margin:18px 0 4px">Best-match similarity: strangers <span style="color:var(--bad)">■</span> vs enrolled students <span style="color:var(--ok)">■</span></h3>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:720px;display:block" role="img" aria-label="score distributions">
+        ${bars(im, "var(--bad)")}${bars(g, "var(--ok)")}
+        <line x1="${x(r.threshold)}" x2="${x(r.threshold)}" y1="4" y2="${H - 18}" stroke="currentColor" stroke-dasharray="4 3"/>
+        <text x="${x(r.threshold) + 4}" y="14" font-size="11" fill="currentColor">threshold ${r.threshold}</text>
+        ${[0, 0.2, 0.4, 0.6, 0.8, 1].map(v => `<text x="${x(v)}" y="${H - 4}" font-size="10" text-anchor="middle" fill="currentColor" opacity=".6">${v}</text>`).join("")}
+      </svg>`;
+    // confusion matrix
+    h += `<div class="grid" style="margin-top:14px;align-items:start"><div><h3 style="font-size:14px;margin:0 0 6px">Confusion matrix at ${r.threshold}
+      <span class="muted">(rows: who it really is · columns: what the system said)</span></h3><div class="table-wrap"><table class="calc">
+      <tr><th></th>${r.labels.map(l => `<th>${esc(l)}</th>`).join("")}</tr>` +
+      Object.entries(r.matrix).map(([row, cols]) => `<tr><th>${esc(row)}</th>${r.labels.map(l => {
+        const n = cols[l], right = l === row || (row === "not enrolled" && l === "unknown");
+        return `<td class="${n ? (right ? "ok" : "no") : "muted"}">${n}</td>`; }).join("")}</tr>`).join("") + `</table></div></div>`;
+    // per-threshold table
+    h += `<div><h3 style="font-size:14px;margin:0 0 6px">Every threshold <span class="muted">(${r.safe_range ? `no mistakes from ${r.safe_range[0]} to ${r.safe_range[1]}` : "mistakes at every threshold"})</span></h3>
+      <div class="table-wrap"><table class="calc"><tr><th>Threshold</th><th>Recall</th><th>False accepts</th><th>Wrong name</th><th>Precision</th></tr>` +
+      r.table.map(t => `<tr style="${Math.abs(t.threshold - r.threshold) < 1e-6 ? "font-weight:700" : ""}"><td>${t.threshold.toFixed(2)}${Math.abs(t.threshold - r.threshold) < 1e-6 ? " (now)" : ""}</td>
+        <td>${pc(t.recall)}</td><td class="${t.false_accept ? "no" : ""}">${pc(t.far)}</td><td class="${t.wrong ? "no" : ""}">${pc(t.wrong_rate)}</td><td>${pc(t.precision)}</td></tr>`).join("") +
+      `</table></div></div></div>`;
+    h += `<p class="muted" style="margin-top:10px">Lowest score of a student matched to their own photos: ${sc.genuine_min} · highest score of a stranger: ${sc.impostor_max}
+      · ${r.duplicates_removed} duplicate photo pair(s) left out. ${tr.strangers ? `${tr.strangers} extra stranger photo(s) from data/strangers/.` :
+      `Only ${tr.left_out} stranger tests: a small sample, so keep the threshold well above the highest stranger score.`}</p>`;
+    $("#acc-out").innerHTML = h;
+  } catch (e) { $("#acc-out").innerHTML = `<div class="empty">Could not measure: ${esc(String(e))}</div>`; }
+  finally { btn.disabled = false; btn.textContent = "Measure again"; }
+}
+$("#acc-run").addEventListener("click", accRun);
+
+/* Liveness cell: face on a phone/screen (YOLO26), blinks counted from the eyelid landmarks, or a cross-camera hint */
+function vtLive(q) {
+  if (q.spoof) return `<b style="color:var(--bad)">on a ${esc(q.spoof.device)}</b><br><span class="muted">looks like ${esc(q.spoof.of)}</span>`;
+  const l = q.liveness;
+  let out = !l ? `<span class="muted">–</span>`
+    : l.state === "live" ? `<span class="ok">${l.blinks} blink${l.blinks > 1 ? "s" : ""}</span><br><span class="muted">real face</span>`
+    : `<span class="${l.state === "no_blink" ? "no" : "muted"}">no blink ${l.seconds}s/${l.limit}s</span>`;
+  if (l && l.openness != null) out += `<br><span class="muted">eyes ${l.openness}</span>`;
+  if (q.hint) out += `<br><span class="muted">maybe ${esc(q.hint.name)}? (${esc(q.hint.camera)})</span>`;
+  return out;
+}
+const VT_STEPS = ["preprocess", "yolo", "reid", "face_detect", "liveness", "arcface"];   // pipeline order
 let vtFile = null, vtId = null, vtTimer = null, vtExpect = new Set();
 const mmss = s => s == null ? "–" : `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
@@ -1431,7 +1506,7 @@ function vtRender(id, d) {
       ` · YOLO26 input ${pr.yolo_imgsz || "–"} px` + (cur.covered ? ` · <b style="color:var(--bad)">camera blocked: ${esc(cur.covered_reason)}</b>` : "");
     const th = (state && state.config.MATCH_THRESHOLD) || 0.45;
     $("#vt-calc").innerHTML = !cur.people.length ? `<div class="empty">Nobody in this frame.</div>` : `<table class="calc">
-      <tr><th>Person</th><th>YOLO26</th><th>Face</th><th>ArcFace</th><th>Re-ID</th></tr>` +
+      <tr><th>Person</th><th>YOLO26</th><th>Face</th><th>ArcFace</th><th>Re-ID</th><th>Liveness</th></tr>` +
       cur.people.map(q => `<tr>
         <td><b style="color:${q.kind === "ok" ? "var(--ok)" : q.kind === "alert" ? "var(--bad)" : "inherit"}">${esc(q.label)}</b><br><span class="muted">${esc(q.how)}</span></td>
         <td>${q.conf != null ? `conf ${q.conf.toFixed(2)}` : "–"}</td>
@@ -1439,6 +1514,7 @@ function vtRender(id, d) {
         <td>${q.checked ? `<span class="${q.checked.score >= th ? "ok" : "no"}">${q.checked.score.toFixed(2)} ${q.checked.score >= th ? "≥" : "<"} ${th}</span><br><span class="muted">→ ${esc(q.checked.name)}</span>`
               : q.name !== "unidentified" && q.name !== "unknown" ? `<span class="muted">kept ${q.score.toFixed(2)}</span>` : `<span class="muted">–</span>`}</td>
         <td>${q.reid && q.reid_sim != null ? `${q.reid_sim.toFixed(2)} ≥ 0.70<br><span class="muted">${esc(q.clothes || "")} clothes</span>` : `<span class="muted">${esc(q.clothes || "")}</span>`}</td>
+        <td>${vtLive(q)}</td>
       </tr>`).join("") + `</table>`;
   }
   if (s) {

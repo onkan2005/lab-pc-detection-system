@@ -137,16 +137,22 @@ class Gallery:
         self.tracks = {}     # YOLO track id -> pid
 
 
-    def person_for(self, track_id, sig, now, taken):
+    def person_for(self, track_id, sig, now, taken, box=None):
         """The person this YOLO track belongs to: the same as before, a re-identified recent person
-        (by appearance), or a new one. `taken` = pids already matched in this frame."""
+        (by appearance), or a new one. `taken` = pids already matched in this frame. `box` = this frame's
+        YOLO box (used to tell "clothes changed while sitting still" from "someone else sat down")."""
         pid = self.tracks.get(track_id) if track_id is not None else None
         if pid in self.people and pid not in taken:
             p = self.people[pid]
             # The tracker links boxes by POSITION, so the next person who sits in the same spot can
             # inherit the previous person's track. If the clothes/body clearly changed, it is someone else.
-            if clothes_similarity(p["sig"], sig) >= config.REID_SPLIT_SIM:
-                p["sig"] = blend(p["sig"], sig)   # "reid" stays until a face confirms the name again
+            # Unless the box never left its spot (seen in the previous frame, <= 1 s ago, same place):
+            # swapping people takes seconds and shows up as boxes moving, while taking off a jacket or a
+            # light switching on changes the colors of a person who stays put.
+            same_clothes = clothes_similarity(p["sig"], sig) >= config.REID_SPLIT_SIM
+            if same_clothes or self._steady(p, box, now):
+                p["sig"] = blend(p["sig"], sig, 0.2 if same_clothes else 0.6)   # new clothes: learn them fast
+                p["box"] = box
                 if p["name"] is None:             # face never seen: maybe a named person whose box was lost
                     named = self._takeover(p, sig, now, taken)
                     if named is not None:
@@ -154,19 +160,41 @@ class Gallery:
                         return named
                 return p
             self.tracks.pop(track_id, None)
-        best, best_s = None, 0.0
-        for p in self.people.values():
-            if p["pid"] in taken or now - p["seen"] > config.REID_WINDOW_SEC:
-                continue
-            s = similarity(p["sig"], sig)
-            if s > best_s:
-                best, best_s = p, s
-        if best is not None and best_s >= config.REID_MIN_SIM:
+        best, best_s = self._best([p for p in self.people.values()
+                                   if p["pid"] not in taken and now - p["seen"] <= config.REID_WINDOW_SEC], sig)
+        if best is not None:
             best["sig"], best["reid"], best["reid_sim"] = blend(best["sig"], sig), True, round(best_s, 2)
+            best["box"] = box
             if track_id is not None:
                 self.tracks[track_id] = best["pid"]
             return best
-        return self.new_person(track_id, sig, now)
+        p = self.new_person(track_id, sig, now)
+        p["box"] = box
+        return p
+
+    @staticmethod
+    def _best(candidates, sig):
+        """The candidate whose clothes + body match, or None. Two candidates that both match and are within
+        REID_MARGIN of each other (two students in similar outfits) are too close to call: None, so the
+        person waits for their face instead of maybe getting the other student's name."""
+        scored = sorted(((similarity(q["sig"], sig), q) for q in candidates), key=lambda x: -x[0])
+        if not scored or scored[0][0] < config.REID_MIN_SIM:
+            return None, 0.0
+        if len(scored) > 1 and scored[1][0] >= config.REID_MIN_SIM and scored[0][0] - scored[1][0] < config.REID_MARGIN:
+            return None, 0.0
+        return scored[0][1], scored[0][0]
+
+    @staticmethod
+    def _steady(p, box, now):
+        """Was this person's box in the same place in the previous frame (at most 1 s ago)?"""
+        old = p.get("box")
+        if box is None or old is None or now - p["seen"] > 1.0:
+            return False
+        ix = max(0.0, min(box[2], old[2]) - max(box[0], old[0]))
+        iy = max(0.0, min(box[3], old[3]) - max(box[1], old[1]))
+        inter = ix * iy
+        union = (box[2] - box[0]) * (box[3] - box[1]) + (old[2] - old[0]) * (old[3] - old[1]) - inter
+        return inter / max(1e-6, union) >= config.REID_STEADY_IOU
 
     def _takeover(self, p, sig, now, taken):
         """YOLO sometimes puts a second, short-lived box on the same person (e.g. around the head and a
@@ -174,18 +202,14 @@ class Gallery:
         person is left nameless. So a person whose face was NEVER seen takes over a named person who has
         been out of view for REID_TAKEOVER_SEC (so two people in view never swap names) and whose clothes
         and body match. A person whose face was seen but not recognized (a stranger) is never renamed."""
-        best, best_s = None, 0.0
-        for q in self.people.values():
-            if (q is p or q["pid"] in taken or q["name"] in (None, "unknown")
-                    or not config.REID_TAKEOVER_SEC <= now - q["seen"] <= config.REID_WINDOW_SEC):
-                continue
-            s = similarity(q["sig"], sig)
-            if s > best_s:
-                best, best_s = q, s
-        if best is None or best_s < config.REID_MIN_SIM:
+        best, best_s = self._best([q for q in self.people.values()
+                                   if q is not p and q["pid"] not in taken and q["name"] not in (None, "unknown")
+                                   and config.REID_TAKEOVER_SEC <= now - q["seen"] <= config.REID_WINDOW_SEC], sig)
+        if best is None:
             return None
         del self.people[p["pid"]]
         best["sig"], best["reid"], best["reid_sim"] = blend(best["sig"], sig), True, round(best_s, 2)
+        best["box"] = p.get("box")
         return best
 
     def new_person(self, track_id, sig, now, name=None, score=0.0):

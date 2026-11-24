@@ -23,6 +23,7 @@ from insightface.app.common import Face
 from ultralytics import YOLO
 
 import config
+import liveness
 from preprocess import detail, enhance, stats
 from reid import Gallery, signature
 
@@ -32,18 +33,21 @@ UNIDENTIFIED = "unidentified"   # a person YOLO sees whose face has not been rec
 # Detection sizes per camera type. A PC webcam sees one person up close; a CCTV room camera sees
 # many people far away, so it keeps a bigger image and looks for smaller faces.
 PC_PROFILE = {"width": config.DETECT_WIDTH, "yolo": config.YOLO_IMGSZ,
-              "face": config.LIVE_FACE_DET_SIZE, "min_face": config.MIN_FACE_PX}
+              "face": config.LIVE_FACE_DET_SIZE, "min_face": config.MIN_FACE_PX,
+              "blink": True}   # faces are big enough for eyelid landmarks (liveness.py)
 CCTV_PROFILE = {"width": config.CCTV_DETECT_WIDTH, "yolo": config.CCTV_YOLO_IMGSZ,
                 # the face detector runs on each person's crop, enlarged to 640 px so small faces are found
                 "face": 640, "min_face": config.CCTV_MIN_FACE_PX,
                 "tracker": str(config.BASE_DIR / "tracker_cctv.yaml")}
 
 
-def new_camera(profile=PC_PROFILE):
+def new_camera(profile=PC_PROFILE, name=None, sightings=None):
     """State for one camera: its own YOLO26 model (so its tracker only follows this camera's
     people), the gallery of people recently seen by it (re-identification by appearance), and
-    its detection sizes (PC webcam or CCTV)."""
-    return {"yolo": YOLO(config.YOLO_MODEL), "gallery": Gallery(), "profile": profile}
+    its detection sizes (PC webcam or CCTV). `sightings` (sightings.py) is shared by all cameras of
+    the app: face-confirmed people are posted there, and other cameras get "maybe <name>?" hints."""
+    return {"yolo": YOLO(config.YOLO_MODEL), "gallery": Gallery(), "profile": profile,
+            "name": name, "sightings": sightings}
 
 
 def shrink(frame, width=config.DETECT_WIDTH):
@@ -123,10 +127,16 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
     # 126/145 frames at 480 px, 119 at 640, 95 at 960 (measured with evaluate_video.py test clips).
     t0 = clock()
     imgsz = min(prof["yolo"], max(320, math.ceil(small.shape[1] * 1.25 / 32) * 32))
-    det = cam["yolo"].track(small, persist=True, tracker=prof.get("tracker", "bytetrack.yaml"), classes=[0],
+    # besides people, YOLO26 also looks for phones and screens (liveness: a face shown on a device)
+    classes = [0] + (list(config.SPOOF_DEVICES) if config.LIVENESS else [])
+    det = cam["yolo"].track(small, persist=True, tracker=prof.get("tracker", "bytetrack.yaml"), classes=classes,
                             conf=prof.get("conf", config.YOLO_CONF), imgsz=imgsz, verbose=False)[0]
-    boxes = det.boxes.xyxy.tolist()
-    confs = det.boxes.conf.tolist()
+    cls = det.boxes.cls.int().tolist()
+    all_boxes, all_confs = det.boxes.xyxy.tolist(), det.boxes.conf.tolist()
+    all_ids = det.boxes.id.int().tolist() if det.boxes.id is not None else [None] * len(all_boxes)
+    keep = [i for i, c in enumerate(cls) if c == 0]
+    boxes, confs = [all_boxes[i] for i in keep], [all_confs[i] for i in keep]
+    devices = [(config.SPOOF_DEVICES[c], all_boxes[i]) for i, c in enumerate(cls) if c in config.SPOOF_DEVICES]
     spent("yolo", t0)
     prep["yolo_imgsz"] = imgsz
     # Tamper check: almost no detail AND YOLO sees nobody. (A dim room still has detail and people,
@@ -134,7 +144,8 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
     if not boxes and prep["detail"] < config.TAMPER_STD:
         return {"covered": True, "covered_reason": "covered or blank", "persons": 0,
                 "people": [], "user": None, "prep": prep}
-    ids = det.boxes.id.int().tolist() if det.boxes.id is not None else [None] * len(boxes)
+    ids = [all_ids[i] for i in keep]
+    board, cam_name = cam.get("sightings"), cam.get("name")
 
     gallery, people, taken = cam["gallery"], [], set()
     # biggest boxes first, so the PC's user gets first pick when matching appearances
@@ -144,14 +155,28 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
         # 3b. re-identification: same track, or a recent person with the same clothes/body -> same person
         t0 = clock()
         sig = signature(small, box)
-        person = gallery.person_for(tid, sig, now, taken)
+        person = gallery.person_for(tid, sig, now, taken, box)
         spent("reid", t0)
         # 4. face inside this person's box (cheap) -> recognize only when needed (ArcFace is the slow part)
         t0 = clock()
         face = find_face(small, box, face_app, prof["face"], prof["min_face"])
         spent("face_detect", t0)
         checked = None
-        if face is not None and (person["name"] in (None, "unknown") or now - person["at"] >= config.RECOGNIZE_EVERY):
+        # liveness: a face shown on a phone/screen is never given a name; blinks are counted (PC cameras)
+        spoof = liveness.on_device(face.bbox, box, devices) if face is not None and devices else None
+        if face is not None and spoof is None and config.LIVENESS and prof.get("blink"):
+            t0 = clock()
+            liveness.update(person, face_app, small, face, now)
+            spent("liveness", t0)
+        if spoof is not None:
+            t0 = clock()
+            face_app.models["recognition"].get(small, face)
+            name, score = recognizer.identify(face.normed_embedding)
+            spent("arcface", t0)
+            t_ms["arcface_runs"] = t_ms.get("arcface_runs", 0) + 1
+            checked = {"name": str(name), "score": round(float(score), 3)}
+            person["spoof"] = {"device": spoof, "of": str(name), "at": now}
+        elif face is not None and (person["name"] in (None, "unknown") or now - person["at"] >= config.RECOGNIZE_EVERY):
             t0 = clock()
             face_app.models["recognition"].get(small, face)
             name, score = recognizer.identify(face.normed_embedding)
@@ -170,6 +195,13 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
                 person.update(name=name, score=float(score), at=now, reid=False)
         person["seen"] = now
         taken.add(person["pid"])
+        spoofing = person.get("spoof") if person.get("spoof") and now - person["spoof"]["at"] <= 1.0 else None
+        hint = None
+        if board is not None:
+            if face is not None and spoofing is None and person["name"] not in (None, "unknown") and not person.get("reid"):
+                board.record(person["name"], cam_name, sig, now)     # seen by face: tell the other cameras
+            elif person["name"] is None:
+                hint = board.hint(cam_name, sig, now)                # nobody's face yet: maybe someone seen elsewhere
         people.append({
             "id": person["pid"], "track": tid, "name": person["name"] or UNIDENTIFIED,
             "score": round(person["score"], 2), "user": False,
@@ -179,6 +211,9 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
             "conf": round(confs[k], 2),          # YOLO26 confidence that this box is a person
             "face_score": round(float(face.det_score), 2) if face is not None else None,   # SCRFD confidence
             "checked": checked,
+            "spoof": spoofing and {"device": spoofing["device"], "of": spoofing["of"]},   # face shown on a phone/screen
+            "liveness": liveness.state_of(person) if prof.get("blink") else None,
+            "hint": hint,
             "box": [round(v * back) for v in box],
             "face_box": [round(float(v) * back) for v in face.bbox] if face is not None else None,
         })
@@ -189,4 +224,5 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
     if people:
         user = max(people, key=lambda p: (p["box"][2] - p["box"][0]) * (p["box"][3] - p["box"][1]))
         user["user"] = True
-    return {"covered": False, "persons": len(people), "people": people, "user": user, "prep": prep}
+    return {"covered": False, "persons": len(people), "people": people, "user": user, "prep": prep,
+            "devices": [{"kind": k, "box": [round(v * back) for v in b]} for k, b in devices]}

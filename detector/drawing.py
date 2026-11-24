@@ -30,10 +30,21 @@ def describe(pc, result, tracker, t):
             who += f" (by {p.get('clothes', '')} clothes)"   # face hidden: kept by appearance re-ID
         st = tracker.status(pc, name, t) if name != UNIDENTIFIED else \
             {"state": "unidentified", "seconds": 0, "limit": None, "alert": False}
-        if name == UNIDENTIFIED:
+        sp, lv, hint = p.get("spoof"), p.get("liveness"), p.get("hint")
+        if sp:
+            of = sp["of"] if sp["of"] not in ("unknown", UNIDENTIFIED) else None
+            fired = of and ("SPOOF", pc, of) in tracker.fired
+            label = (f"{'ALERT: ' if fired else ''}Face on a {sp['device']}" + (f" - looks like {of}, not counted" if of else " - ignored"))
+            kind = "alert" if of else "bystander"
+        elif name == UNIDENTIFIED:
             label, kind = f"Person{n} - looking for face", "bystander"
+            if hint:
+                label = f"Person{n} - maybe {hint['name']}? (clothes match, seen on {hint['camera']} {hint['ago']}s ago)"
         elif not p["user"] and name not in tracker.watchlist:
             label, kind = f"{who} (bystander)", "bystander"
+        elif p["user"] and lv and lv["state"] == "no_blink":
+            fired = ("NO_BLINK", pc, name) in tracker.fired
+            label, kind = f"{'ALERT: ' if fired else ''}{who} - no blink in {lv['seconds']}s (photo?)", "alert" if fired else "checking"
         elif st["state"] == "ok":
             label, kind = f"{who} - assigned to {pc}", "ok"
         elif st["state"] == "watchlist":

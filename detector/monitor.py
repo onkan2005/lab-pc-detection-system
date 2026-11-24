@@ -55,6 +55,7 @@ def main():
         names = {p["name"] for p in result["people"] if p["name"] != UNIDENTIFIED
                  and (p["user"] or p["name"] in tracker.watchlist)}
         tracker.update(t, args.pc, names, result["persons"], result["covered"])
+        tracker.check_liveness(t, args.pc, result["people"])
         tracker.take_new_alerts()   # printed and written to alerts.csv already
         cv2.imshow(f"{args.pc} camera", draw(frame, args.pc, describe(args.pc, result, tracker, t), result["covered"]))
         if cv2.waitKey(1) & 0xFF == ord("q"):

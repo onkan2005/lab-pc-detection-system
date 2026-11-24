@@ -28,7 +28,11 @@ class Incidents:
         iid = f"{int(time.time() * 1000)}"
         files = {}
         pid = alert.get("pid")
-        person = next((p for p in people if (pid is not None and p["id"] == pid) or p["name"] == alert["name"]), None)
+        def match(p):
+            if alert["type"] == "SPOOF":   # the face on the phone/screen, not the student it looks like
+                return (p.get("spoof") or {}).get("of") == alert["name"]
+            return (pid is not None and p["id"] == pid) or p["name"] == alert["name"]
+        person = next((p for p in people if match(p)), None)
         if person is not None:
             h, w = raw_frame.shape[:2]
             x1, y1, x2, y2 = person["face_box"] or person["box"]   # face if visible, else the YOLO person box

@@ -16,6 +16,8 @@ Final project for ICE 415 – Digital Image Processing.
 - [Enroll students](#enroll-students)
 - [Reset the data (keep the photos)](#reset-the-data-keep-the-photos)
 - [Same person, not a new one (re-identification)](#same-person-not-a-new-one-re-identification)
+- [Photo or real face? (liveness)](#photo-or-real-face-liveness)
+- [How accurate is it?](#how-accurate-is-it)
 - [Using the app](#using-the-app)
 - [Cameras (webcam, phone, two cameras)](#cameras)
 - [CCTV room camera](#cctv-room-camera)
@@ -45,7 +47,9 @@ camera frame (browser) ─► preprocessing ─► YOLO26 + ByteTrack ─► fac
 4. **Face recognition inside each YOLO box.** SCRFD finds the face, ArcFace (InsightFace `buffalo_l`) turns
    it into a 512-number embedding, and cosine similarity matches it with the enrolled students
    (≥ 0.45 = that student, otherwise *unknown*). The name stays attached to the YOLO track ID.
-5. **Rules with thresholds** decide when to raise an alert. Every alert becomes an incident with a
+5. **Liveness.** A face shown on a phone or screen (YOLO26 also detects phones and screens) is never given
+   a name, and a recognized face must blink (106 face landmarks) or it is flagged as a possible photo.
+6. **Rules with thresholds** decide when to raise an alert. Every alert becomes an incident with a
    snapshot; the technician marks it *Technician sent* → *Resolved* / *False alarm*.
 
 All models are **pretrained**; no training is needed. Each student only provides photos.
@@ -278,7 +282,7 @@ ignored by Git and Docker). Results on public test videos:
 | Video | What it tests | Result |
 |---|---|---|
 | OpenCV `faceocc2`, face covered for 20 s, person leaves and returns | name kept without a face | **100%** of 473 no-face frames had the right name, 0 wrong names |
-| EPFL lab, 6 people walking for 2 min (360×288 CCTV) | tracking in a crowded room | faces too small to recognize (found in 1% of boxes); 42 identities for 6 people; 7 "unknown in room" alerts for 6 strangers |
+| EPFL lab, 6 people walking for 2 min (360×288 CCTV) | tracking in a crowded room | faces too small to recognize (found in 1% of boxes); 45 identities for 6 people (42 before the look-alike rule, which refuses merges that are too close to call); 7 "unknown in room" alerts for 6 strangers |
 | CAVIAR shop corridor, person leaves and re-enters (384×288) | re-entry | 2 identities for 2 people |
 
 What this means: when people walk behind each other for seconds, nobody can be followed by motion alone;
@@ -309,6 +313,10 @@ after changing them):
 | `ENHANCE_METHOD` | `brightness` | low-light correction: `brightness`, `normalize`, `equalize`, `clahe` |
 | `REID_WINDOW_SEC` | 300 | how long a camera remembers people's clothes/body for re-identification |
 | `REID_MIN_SIM`, `REID_SPLIT_SIM` | 0.70, 0.25 | appearance similarity to call it the same person / a different person on the same track |
+| `REID_MARGIN` | 0.05 | two recent people match this closely: too close to call, wait for the face |
+| `LIVENESS`, `LIVENESS_SEC`, `SPOOF_SEC` | `True`, 20, 2 | blink check and phone/screen check; no blink for this long / face on a phone this long → alert |
+| `HINT_SEC`, `HINT_SIM` | 180, 0.60 | cross-camera "maybe <name>?" hints: how recent, how similar the clothes |
+| `ROOM_NOTE_SEC` | 60 | an assigned student seen by another camera this recently → note on their empty PC |
 | `PRIVACY_BLUR` | `True` | pixelate faces in the camera wall, incident snapshots and live view |
 | `RETENTION_DAYS` | 30 | delete finished incidents, snapshots and log rows older than this (0 = keep) |
 
@@ -354,6 +362,18 @@ while their face is hidden. `reid.py` keeps a **short-term appearance memory** p
   name. The video label then says e.g. `labisores (by blue clothes)`.
 - If the tracker hands a seat to the **next** person (it links boxes by position), the clothes no longer
   match and that is counted as a different person.
+- **Clothes that change while the person stays put** (jacket on/off, a light switched on) do not make
+  them a new person: if the box is still in the same spot as in the previous frame, it is the same person
+  and the new colors are learned quickly. Swapping people takes seconds and moves the boxes, so that is
+  still caught. Test (enrolled student, face hidden, shirt suddenly turns dark red while seated): name
+  kept in **100%** of the 51 no-face frames, against 27.5% before this rule.
+- **Look-alikes:** if two recent people both match and are within 0.05 of each other (similar outfits),
+  the system does not pick one; the person stays unnamed until their face is seen.
+- **Between cameras:** each camera keeps its own memory (colors look different from another angle), but a
+  student recognized by face on one camera is shared with the others (`sightings.py`). A person whose face
+  was not seen yet, whose clothes clearly match that student, is shown as `maybe <name>?`. It is only a
+  hint: it is never logged and never raises or clears an alert. The same board gives the PC tiles a note
+  such as *"juan is in the room (CCTV cam1, 12s ago), not at this PC"*.
 - **The face always wins.** Appearance is only short-term (clothes change every day). A clear face that
   says it is someone else splits them apart (e.g. same school uniform). A **blurred or turned face**
   (measured with image sharpness, the variance of the Laplacian) does not override who the clothes say it is.
@@ -368,6 +388,61 @@ do not jump when people walk past each other. On the EPFL 6-person lab video: hi
 Tested with two enrolled students: the tracker produced 4 different track IDs, re-identification
 merged them into the right 2 people and kept the names while faces were blurred. Thresholds are in
 `config.py` (`REID_*`, `FACE_SHARPNESS_MIN`); re-check them after the whole group is enrolled.
+
+---
+
+## Photo or real face? (liveness)
+
+ArcFace only compares faces, so a printed photo or a phone showing a student's face would match that
+student. `liveness.py` adds two checks, both with pretrained models:
+
+1. **Face on a phone or screen (YOLO26).** YOLO26 also looks for COCO *cell phone*, *tv* and *laptop*. A face
+   inside a phone, or a person entirely inside a screen, is being shown to the camera: it gets no name and,
+   if it looks like an enrolled student for 2 s, raises a **SPOOF** incident.
+2. **Blinking (InsightFace 106 landmarks, PC cameras).** Eye openness = gap between the eyelids ÷ distance
+   from the eyes to the mouth (so tilting a photo does not fake a blink). A blink is openness below 60% of
+   that person's usual value. A recognized PC user whose face is visible for 20 s without one blink raises
+   **NO_BLINK** ("a printed photo?").
+
+Measured:
+
+| Test | Result |
+|---|---|
+| Enrolled photo held up and moved, tilted ±25°, for 30 s | eye openness changed only ±10%, **0 blinks**; NO_BLINK alert at 20 s |
+| Real face (`faceocc2`, 32 s, partly covered by a book) | first blink after 1 s, **no false alert** |
+| Cost | about 6–9 ms per frame (blink check) |
+
+Limits: a **video** of a student played on a phone does blink, so it is only caught when YOLO26 sees the
+phone. Blinks are not measured on CCTV (faces too small for eyelid landmarks). Test the phone check with a
+real phone in front of the webcam: a drawn phone in a test video was not recognized as a phone by YOLO26.
+
+---
+
+## How accurate is it?
+
+**Students page → Recognition accuracy → Measure accuracy** (or `python evaluate_accuracy.py`) measures
+face recognition on the enrolled photos, with nothing new to collect:
+
+- each photo is recognized against all the **other** photos and should get its own name (duplicates of
+  the same shot are left out);
+- each student in turn is **removed** from the system, so their photos are strangers and should be rejected.
+
+Put face photos of people who are **not** enrolled in `data/strangers/` for a bigger stranger test. Results
+with 3 students, 29 photos:
+
+| Threshold | Recall (students named right) | False accepts (strangers named) | Wrong student's name | Precision |
+|---|---|---|---|---|
+| 0.25 | 100% | 0% | 0% | 100% |
+| 0.35 | 96.6% | 0% | 0% | 100% |
+| **0.45 (used)** | **96.6%** | **0%** | **0%** | **100%** |
+| 0.55 | 93.1% | 0% | 0% | 100% |
+| 0.70 | 69.0% | 0% | 0% | 100% |
+
+The highest stranger score was 0.235 and the lowest same-student score 0.334, so 0.45 leaves a margin of
+0.21 above the most similar stranger. The one miss at 0.45 is a single unusual photo that still scored 0.33.
+29 stranger tests is a small sample, so the threshold is kept well above the highest stranger score
+instead of being lowered to the edge. The page also shows the confusion matrix and the score distributions
+(`data/accuracy/accuracy.png` from the command line).
 
 ---
 
@@ -405,6 +480,9 @@ merged them into the right 2 people and kept the names while faces were blurred.
     ├── templates/index.html         the web app (single page)
     ├── detection.py                 per-frame pipeline: preprocessing → YOLO26 track → re-ID → face → ArcFace
     ├── reid.py                      re-identification by clothing colors + body dimensions
+    ├── liveness.py                  photo/phone check: YOLO26 phones/screens + blink detection
+    ├── sightings.py                 shared between cameras: hints and "student is in the room"
+    ├── evaluate_accuracy.py         recall, false accepts, precision, confusion matrix per threshold
     ├── preprocess.py                course lessons: brightness/contrast, negative, normalization, equalization
     ├── faces.py                     face detection + recognition (cosine similarity)
     ├── tracker.py                   usage sessions and alert rules (PC cameras)

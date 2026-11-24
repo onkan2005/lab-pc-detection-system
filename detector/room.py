@@ -30,6 +30,7 @@ class RoomTracker:
         self.last_frame = {}      # cam -> t
         self.fired = set()
         self.new_alerts = []
+        self.spoof_seen = {}      # (cam, name) -> {"first": t, "last": t}   a face shown on a phone/screen
         self.numbers = StableNumbers()
         self.quiet = quiet
         self.room_log = room_log or ROOM_LOG             # a video test writes its own logs elsewhere
@@ -77,6 +78,22 @@ class RoomTracker:
             self.fired.discard(("CAMERA_BLOCKED", cam, "-"))
 
         for p in people:
+            sp = p.get("spoof")
+            if sp:   # a face on a phone/screen is not a person in the room; an enrolled one is an impersonation
+                if sp["of"] not in UNNAMED:
+                    v = self.spoof_seen.get((cam, sp["of"]))
+                    if v is None or t - v["last"] > config.PRESENCE_GAP:
+                        self.spoof_seen[(cam, sp["of"])] = v = {"first": t, "last": t}
+                        self.fired.discard(("SPOOF", cam, sp["of"]))
+                    v["last"] = t
+                    if t - v["first"] >= config.SPOOF_SEC:
+                        self._alert(t, "SPOOF", cam, sp["of"], f"a face shown on a {sp['device']} ({cam}) looks like "
+                                    f"{sp['of']} (photo or video held up to the camera)", p["id"])
+                continue
+            lv = p.get("liveness")
+            if lv and lv["state"] == "no_blink" and p["name"] not in UNNAMED:
+                self._alert(t, "NO_BLINK", cam, p["name"],
+                            f"{p['name']}'s face ({cam}) has not blinked in {lv['seconds']}s (a printed photo?)", p["id"])
             if p["name"] in UNNAMED:
                 key, store = (cam, p["id"]), self.unknown
             else:
@@ -126,12 +143,19 @@ class RoomTracker:
     def describe(self, cam, people, t):
         """Labels for the CCTV page: everyone is shown (no PC user / bystander split)."""
         # "Unknown person N": N stays with the person while in view, reused after they leave (labels.py)
-        slot = self.numbers.assign(cam, [p for p in people if p["name"] in UNNAMED], t)
+        slot = self.numbers.assign(cam, [p for p in people if p["name"] in UNNAMED and not p.get("spoof")], t)
         out = []
         for p in people:
             name = p["name"]
             n = f" {slot[p['id']]}" if p["id"] in slot else ""
-            if name in UNNAMED:
+            sp, lv, hint = p.get("spoof"), p.get("liveness"), p.get("hint")
+            if sp:
+                of = sp["of"] if sp["of"] not in UNNAMED else None
+                fired = of and ("SPOOF", cam, of) in self.fired
+                who, how, seconds = f"Face on a {sp['device']}", "photo/video held up to the camera", 0
+                kind = "alert" if of else "bystander"
+                label = f"{'ALERT: ' if fired else ''}{who}" + (f" - looks like {of}, not counted" if of else " - ignored")
+            elif name in UNNAMED:
                 v = self.unknown.get((cam, p["id"]))
                 seconds = round(t - v["first"]) if v else 0
                 alert = ("UNKNOWN_IN_ROOM", cam, f"unknown-{p['id']}") in self.fired
@@ -141,6 +165,9 @@ class RoomTracker:
                     kind, label = "alert", f"ALERT: {who} in the room"
                 else:
                     kind, label = "checking", f"{who} - {how} ({seconds}s/{config.CCTV_UNKNOWN_SEC}s)"
+                if hint:   # only a hint: the timer and alerts still treat them as unknown
+                    how = f"maybe {hint['name']}? clothes match, seen by face on {hint['camera']} {hint['ago']}s ago"
+                    label += f" - maybe {hint['name']}?"
             else:
                 v = self.visits.get((cam, name))
                 seconds = round(t - v["first"]) if v else 0
@@ -149,6 +176,10 @@ class RoomTracker:
                        else "face" if p.get("face_box") else "kept by tracking (face not visible now)")
                 if name in self.watchlist:
                     kind, label = "alert", f"WATCHLIST: {name}"
+                elif lv and lv["state"] == "no_blink":
+                    fired = ("NO_BLINK", cam, name) in self.fired
+                    kind = "alert" if fired else "checking"
+                    label = f"{'ALERT: ' if fired else ''}{name} - no blink in {lv['seconds']}s (photo?)"
                 else:
                     kind, label = "ok", name + (f" (by {p.get('clothes', '')} clothes)" if p.get("reid") else "")
             out.append({**p, "label": label, "color": COLORS[kind], "kind": kind, "display": who,

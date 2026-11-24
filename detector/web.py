@@ -32,9 +32,11 @@ import preprocess as pp
 from faces import Recognizer, detect_faces, load_face_app
 from incidents import Incidents
 from room import ROOM_LOG, RoomTracker
+from sightings import Sightings
 from tracker import Tracker, load_assignments, save_assignments
 from videotest import VideoTest
 from photocheck import check_photo
+from evaluate_accuracy import measure
 from ultralytics import YOLO
 
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".mpg", ".mpeg", ".m4v", ".wmv"}
@@ -75,6 +77,7 @@ class Engine:
         self.stations = {}                     # pc -> latest result, thumbnail, timing
         self.room = RoomTracker(self.watchlist)  # CCTV cameras: who is in the room
         self.cctv = {}                         # CCTV camera name -> latest result, thumbnail, timing
+        self.sightings = Sightings()           # shared by all cameras: who was last recognized where
         self.last_report = load_json(config.ENROLL_REPORT_FILE, None)   # photo quality + best photo per person
         self.video_tests = {}                  # id -> VideoTest (this session)
         self.photo_yolo = None                 # YOLO26 for "Check a photo" (loaded on first use)
@@ -105,7 +108,7 @@ class Engine:
             t = self.now()
             started = time.monotonic()
             if pc not in self.stations:   # each PC camera gets its own YOLO26 tracker
-                self.stations[pc] = {"thumb": None, "thumb_t": -1, "cam": new_camera()}
+                self.stations[pc] = {"thumb": None, "thumb_t": -1, "cam": new_camera(name=pc, sightings=self.sightings)}
             st = self.stations[pc]
             result = analyze(frame, st["cam"], self.face_app, self.recognizer)
             ms = round((time.monotonic() - started) * 1000)
@@ -113,6 +116,7 @@ class Engine:
             names = {p["name"] for p in result["people"] if p["name"] != UNIDENTIFIED
                      and (p["user"] or p["name"] in self.tracker.watchlist)}   # user + banned bystanders
             self.tracker.update(t, pc, names, result["persons"], result["covered"])
+            self.tracker.check_liveness(t, pc, result["people"])
             people = describe(pc, result, self.tracker, t)
 
             new_alerts = self.tracker.take_new_alerts()
@@ -140,7 +144,8 @@ class Engine:
             t = self.now()
             started = time.monotonic()
             if cam not in self.cctv:
-                self.cctv[cam] = {"thumb": None, "thumb_t": -1, "cam": new_camera(CCTV_PROFILE)}
+                self.cctv[cam] = {"thumb": None, "thumb_t": -1,
+                                  "cam": new_camera(CCTV_PROFILE, name=f"CCTV {cam}", sightings=self.sightings)}
             st = self.cctv[cam]
             result = analyze(frame, st["cam"], self.face_app, self.recognizer)
             ms = round((time.monotonic() - started) * 1000)
@@ -184,6 +189,15 @@ class Engine:
             user = next((p for p in st.get("people", []) if p["user"]), None) if tr.online(pc, t) else None
             crowd = tr.crowd_since.get(pc)
             seen = tr.last_assigned_seen.get(pc)
+            # assigned student not at their PC but seen by another camera (CCTV or another PC) just now
+            here = user["name"] if user else None
+            elsewhere = []
+            for name in assigned:
+                if name == here:
+                    continue
+                w = self.sightings.where(name, t, config.ROOM_NOTE_SEC)
+                if w and w["camera"] != pc:
+                    elsewhere.append({"name": name, **w})
             out.append({
                 "pc": pc, "assigned": assigned, "online": tr.online(pc, t),
                 "covered": pc in tr.covered_since, "persons": st.get("persons", 0) if tr.online(pc, t) else 0,
@@ -192,6 +206,7 @@ class Engine:
                 "absent_alert": ("ABSENT", pc, "-") in tr.fired,
                 "crowd_seconds": round(t - crowd) if crowd is not None else 0,
                 "has_thumb": bool(st.get("thumb")),
+                "elsewhere": elsewhere,
             })
         return out
 
@@ -516,6 +531,31 @@ def test_photo():
             engine.photo_yolo.predict(np.zeros((64, 64, 3), np.uint8), verbose=False)   # warm-up: honest timings
         result = check_photo(img, engine.face_app, engine.photo_yolo, engine.recognizer)
     return jsonify(result)
+
+
+@app.route("/api/accuracy")
+def accuracy():
+    """Recognition accuracy on the enrolled photos (+ any stranger photos in data/strangers/), see evaluate_accuracy.py."""
+    rec = engine.recognizer
+    if len(set(map(str, rec.names))) < 1 or len(rec.names) < 2:
+        return jsonify({"error": "Enroll at least one student with two or more photos first."})
+    folder = config.DATA_DIR / "strangers"
+    strangers = None
+    if folder.exists():
+        files = sorted(str(p) for p in folder.rglob("*") if p.suffix.lower() in PHOTO_EXT)
+        cache = getattr(engine, "stranger_cache", None)
+        if cache is None or cache[0] != files:      # embeddings are computed once per set of photos
+            embs = []
+            with engine.lock:
+                for f in files:
+                    img = cv2.imread(f)
+                    faces = detect_faces(engine.face_app, img) if img is not None else []
+                    if faces:
+                        face = max(faces, key=lambda x: (x.bbox[2] - x.bbox[0]) * (x.bbox[3] - x.bbox[1]))
+                        embs.append(face.normed_embedding)
+            engine.stranger_cache = cache = (files, np.array(embs))
+        strangers = cache[1] if len(cache[1]) else None
+    return jsonify(measure(rec.embeddings, rec.names, strangers))
 
 
 @app.route("/api/enrollment")

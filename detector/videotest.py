@@ -24,9 +24,10 @@ from drawing import blur_faces
 from room import RoomTracker
 
 UNNAMED = (UNIDENTIFIED, "unknown")
-STEPS = ["preprocess", "yolo", "reid", "face_detect", "arcface"]
+STEPS = ("preprocess", "yolo", "reid", "face_detect", "liveness", "arcface")
 STEP_LABEL = {"preprocess": "Preprocessing (lessons 1-3)", "yolo": "YOLO26 + tracker",
-              "reid": "Re-ID (clothes/body)", "face_detect": "SCRFD face detection", "arcface": "ArcFace recognition"}
+              "reid": "Re-ID (clothes/body)", "face_detect": "SCRFD face detection", "liveness": "Blink check (106 landmarks)",
+              "arcface": "ArcFace recognition"}
 BGR = {"ok": (85, 157, 31), "checking": (0, 140, 240), "alert": (49, 49, 224), "bystander": (150, 142, 134)}
 OUT_WIDTH = 960      # result video / live frame width (smaller = smaller files)
 
@@ -194,6 +195,7 @@ class VideoTest:
                         "face_score": p.get("face_score"), "checked": p.get("checked"),
                         "score": p["score"], "reid": p["reid"], "reid_sim": p.get("reid_sim"),
                         "how": p["how"], "seconds": p["seconds"], "clothes": p.get("clothes"),
+                        "liveness": p.get("liveness"), "spoof": p.get("spoof"), "hint": p.get("hint"),
                         "face_px": (p["face_box"][2] - p["face_box"][0]) if p["face_box"] else None}
                        for p in described],
         }

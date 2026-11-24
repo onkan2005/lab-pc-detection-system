@@ -11,7 +11,7 @@ import config
 
 
 def load_face_app(det_size=config.FACE_DET_SIZE):
-    app = FaceAnalysis(name=config.FACE_MODEL, allowed_modules=["detection", "recognition"],
+    app = FaceAnalysis(name=config.FACE_MODEL, allowed_modules=["detection", "recognition", "landmark_2d_106"],   # landmarks: blink check
                        providers=["CPUExecutionProvider"])
     app.prepare(ctx_id=-1, det_size=(det_size, det_size))
     # ONNX Runtime keeps its threads busy-waiting after each run, which starves YOLO (PyTorch)

@@ -48,6 +48,9 @@ UNNAMED_FORGET_SEC = 30            # people never identified (unknown) are forgo
 REID_MIN_SIM = 0.70                # clothes + body similarity (0..1) needed to say "same person"
 REID_SPLIT_SIM = 0.25              # same YOLO track but CLOTHES similarity below this = a different person sat down
 REID_TAKEOVER_SEC = 1.0          # a nameless box may take over a named person only after they were unseen this long
+REID_MARGIN = 0.05                # two recent people both match and are this close: too close to call -> new person
+REID_STEADY_IOU = 0.5             # same track, still in the same spot as in the previous frame (<= 1 s ago): the
+                                  # same person even if their clothes suddenly look different (jacket off, light)
 FACE_SHARPNESS_MIN = 40            # variance of the Laplacian of the face (sharp faces measured >= 101,
                                    # blurred <= 6). An unsharp face that matches nobody does not override
                                    # a known person whose clothes still match (motion blur, out of focus)
@@ -74,6 +77,20 @@ CCTV_MIN_FACE_PX = 24             # smaller faces are not recognized reliably (s
 CCTV_UNKNOWN_SEC = 30             # an unknown person in the room this long -> incident
 UNKNOWN_CONTINUE_SEC = 5          # an unknown person who reappears as "new" within this keeps their timer
 CCTV_LOG_GAP = 60                 # not seen for this long = left the room (written to the room log)
+
+# --- Liveness (liveness.py): is it a real face, or a photo / phone held up to the camera? ---
+LIVENESS = True
+SPOOF_DEVICES = {67: "phone", 62: "screen", 63: "laptop"}   # COCO classes YOLO26 also looks for
+SPOOF_SEC = 2             # a face shown on a phone/screen this long -> SPOOF incident
+BLINK_RATIO = 0.6         # eye openness below this share of the person's usual openness = eyes closed
+LIVENESS_SEC = 20         # a recognized face seen this long (face visible) without one blink -> NO_BLINK incident
+                          # (people blink about every 3-5 s; a printed photo never does)
+
+# --- Cross-camera hints (sightings.py) ---
+HINT_SEC = 180            # a face-confirmed person's clothes are shared with the other cameras this long
+HINT_SIM = 0.60           # clothes similarity needed for a "maybe <name>?" hint on another camera
+HINT_MARGIN = 0.15        # ... and this much above the next most similar person (else no hint)
+ROOM_NOTE_SEC = 60        # an assigned student seen elsewhere this recently -> note on their empty PC
 
 # --- Face recognition ---
 MATCH_THRESHOLD = 0.45   # cosine similarity; below this the face is "unknown"

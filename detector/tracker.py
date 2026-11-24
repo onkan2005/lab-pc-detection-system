@@ -37,6 +37,7 @@ class Tracker:
         self.covered_since = {}  # pc -> t when its camera became covered
         self.last_frame = {}     # pc -> t of the last frame from its camera
         self.fired = set()       # (type, pc, name) alerts already raised, so each fires once
+        self.spoof_seen = {}     # (pc, name) -> {"first": t, "last": t}  a face shown on a phone/screen
         self.new_alerts = []     # raised since the caller last took them (for incidents)
         config.DATA_DIR.mkdir(exist_ok=True)
         self._init_csv(config.SESSIONS_LOG, ["name", "pc", "start", "end", "minutes", "assigned_here"])
@@ -125,6 +126,27 @@ class Tracker:
             if t - s["last"] > config.SESSION_GAP:
                 self._close_session(key, s)
                 del self.sessions[key]
+
+    def check_liveness(self, t, pc, people):
+        """Liveness rules (liveness.py) for one PC camera's people:
+        SPOOF: an enrolled student's face shown on a phone/screen for SPOOF_SEC (someone pretending to be them).
+        NO_BLINK: the PC's user is a recognized student whose face has not blinked in LIVENESS_SEC (a printed photo?)."""
+        for p in people:
+            sp = p.get("spoof")
+            if sp and sp["of"] not in ("unknown", "unidentified"):
+                key = (pc, sp["of"])
+                v = self.spoof_seen.get(key)
+                if v is None or t - v["last"] > config.PRESENCE_GAP:
+                    self.spoof_seen[key] = v = {"first": t, "last": t}
+                    self.fired.discard(("SPOOF", pc, sp["of"]))
+                v["last"] = t
+                if t - v["first"] >= config.SPOOF_SEC:
+                    self._alert(t, "SPOOF", pc, sp["of"],
+                                f"a face shown on a {sp['device']} at {pc} looks like {sp['of']} (photo or video held up to the camera)")
+            lv = p.get("liveness")
+            if p.get("user") and lv and lv["state"] == "no_blink" and p["name"] not in ("unknown", "unidentified"):
+                self._alert(t, "NO_BLINK", pc, p["name"],
+                            f"{p['name']}'s face at {pc} has not blinked in {lv['seconds']}s (a printed photo?)")
 
     def _check_people(self, t):
         for (pc, name), p in self.presence.items():
