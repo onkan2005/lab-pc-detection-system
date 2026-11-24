@@ -187,7 +187,7 @@
   .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   .stage .idle { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
                  color: #A1A1AA; text-align: center; padding: 20px; font-size: 14px; }
-  .stations { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  .stations { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
   .station .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 12px; }
   .station .head h2 { margin: 0; }
   .station-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; align-items: start; }
@@ -196,7 +196,37 @@
   .kv { display: grid; grid-template-columns: 100px 1fr; gap: 8px 12px; font-size: 14px; margin-top: 12px; align-items: center; }
   .kv > div:nth-child(odd) { color: var(--muted); font-size: 13px; }
   @media (max-width: 1100px) { .station-body { grid-template-columns: 1fr; } }
-  @media (min-width: 1600px) { .stations { grid-template-columns: 1fr 1fr; } .station-body { grid-template-columns: 1fr; } }
+  /* layout: Auto (1 column, 2 on wide screens) or a fixed number of cameras per row */
+  @media (min-width: 1600px) { .stations[data-cols="auto"] { grid-template-columns: 1fr 1fr; } .stations[data-cols="auto"] .station-body { grid-template-columns: 1fr; } }
+  .stations[data-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stations[data-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stations[data-cols="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .stations:is([data-cols="2"], [data-cols="3"], [data-cols="4"]) .station-body { grid-template-columns: 1fr; gap: 10px; }
+  .stations:is([data-cols="3"], [data-cols="4"]) .imgq { display: none; }
+  .stations:is([data-cols="3"], [data-cols="4"]) .station { padding: 14px; }
+  .stations:is([data-cols="3"], [data-cols="4"]) .controls .field select { min-width: 0; width: 100%; }
+  .stations:is([data-cols="3"], [data-cols="4"]) .controls .field { flex: 1 1 120px; }
+  @media (max-width: 900px) { .stations[data-cols] { grid-template-columns: 1fr; } }
+  .cam-toolbar { display: flex; gap: 10px 18px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .cam-toolbar .lbl { font-size: 13px; color: var(--muted); }
+  .cam-jump { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+  .cam-jump .chip { min-height: 30px; font-size: 12px; padding: 0 10px; }
+  .cam-jump .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .station .head h2 { white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+  .station .head .pcname { font-family: var(--mono); font-size: 13px; color: var(--muted); font-weight: 500; }
+  .station .mini { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: none; }
+  .station .tools { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+  .icon-btn { min-height: 32px; width: 32px; padding: 0; justify-content: center; }
+  .icon-btn .icon { margin: 0; }
+  /* minimized: one line (camera keeps running and detecting; only the picture is folded away) */
+  .station.min .controls, .station.min .station-body { height: 0; overflow: hidden; margin: 0; }
+  .station.min .head { margin-bottom: 0; }
+  .station.min .mini { display: block; }
+  /* maximized: the whole row, first in the list, video next to the details */
+  .station.max { grid-column: 1 / -1; order: -1; }
+  .stations .station.max .station-body { grid-template-columns: minmax(0, 1fr) 320px; }
+  @media (max-width: 1100px) { .stations .station.max .station-body { grid-template-columns: 1fr; } }
+  .stage:fullscreen { border-radius: 0; }
 
   /* ---------- assignment summary + picker ---------- */
   .summary { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
@@ -285,6 +315,11 @@
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
   <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+  <symbol id="i-max" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="i-restore" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
@@ -345,6 +380,14 @@
           <p>Each camera is one PC. Choose which PC it belongs to and which camera to use, then start it.</p></div>
         <div class="actions"><button class="btn primary" id="add-station"><svg class="icon"><use href="#i-plus"/></svg>Add camera</button></div>
       </div>
+      <div class="cam-toolbar">
+        <span class="lbl">Per row</span>
+        <div class="filters" role="group" aria-label="Cameras per row" id="cam-cols"></div>
+        <button class="btn" id="cam-min-all"><svg class="icon"><use href="#i-min"/></svg>Minimize all</button>
+        <button class="btn" id="cam-max-all"><svg class="icon"><use href="#i-expand"/></svg>Expand all</button>
+        <span class="lbl" id="cam-count"></span>
+      </div>
+      <div class="cam-jump" id="cam-jump" aria-label="Jump to a camera"></div>
       <div class="legend" style="margin-bottom:14px">
         <span><span class="swatch" style="background:#1f9d55"></span>Assigned to this PC</span>
         <span><span class="swatch" style="background:#f08c00"></span>Not assigned, timer running</span>
@@ -738,8 +781,12 @@ class Station {
     const el = document.createElement("div");
     el.className = "card station";
     el.innerHTML = `
-      <div class="head"><h2><svg class="icon"><use href="#i-camera"/></svg>Camera ${index + 1}</h2>
-        ${index ? `<button class="btn danger rm">Remove</button>` : ""}</div>
+      <div class="head"><h2><svg class="icon"><use href="#i-camera"/></svg>Camera ${index + 1} <span class="pcname"></span></h2>
+        <span class="mini">Camera off</span>
+        <div class="tools"><span class="badge b-off state">Off</span>
+          <button class="btn icon-btn minb" title="Minimize" aria-label="Minimize"><svg class="icon"><use href="#i-min"/></svg></button>
+          <button class="btn icon-btn maxb" title="Maximize" aria-label="Maximize"><svg class="icon"><use href="#i-max"/></svg></button>
+          ${index ? `<button class="btn danger icon-btn rm" title="Remove this camera" aria-label="Remove this camera"><svg class="icon"><use href="#i-x"/></svg></button>` : ""}</div></div>
       <div class="controls">
         <label class="field">This camera is PC <select class="pc"></select></label>
         <label class="field">Camera device <select class="cam"><option value="">Default camera</option></select></label>
@@ -769,15 +816,52 @@ class Station {
         this.fillPcs(name);
       }
       store.set(`pc${this.i}`, sel.value);
-      this.renderAssigned();
+      this.renderAssigned(); renderCamJump();
     };
     this.q(".cam").onchange = () => store.set(`cam${this.i}`, this.q(".cam").value);
     if (this.q(".rm")) this.q(".rm").onclick = () => {
       this.stop(); el.remove(); stations.splice(stations.indexOf(this), 1);
-      store.set("stations", String(stations.length));
+      store.set("stations", String(stations.length)); renderCamJump();
     };
+    this.q(".minb").onclick = () => this.setMin(!el.classList.contains("min"));
+    this.q(".maxb").onclick = () => this.setMax(!el.classList.contains("max"));
+    this.q(".stage").ondblclick = () => document.fullscreenElement ? document.exitFullscreen()
+      : this.q(".stage").requestFullscreen && this.q(".stage").requestFullscreen();   // double-click: full screen
     $("#stations").appendChild(el);
     this.fillPcs(); this.fillCams();
+    this.setMin(store.get(`min${this.i}`) === "1");
+  }
+
+  /* Minimize: fold to one line (still detecting). Maximize: whole row, first in the list. */
+  setMin(on) {
+    this.el.classList.toggle("min", on);
+    if (on) this.el.classList.remove("max");
+    store.set(`min${this.i}`, on ? "1" : "0");
+    this.syncButtons(); renderCamJump();
+  }
+  setMax(on) {
+    stations.forEach(s => s !== this && s.el.classList.remove("max"));   // one big camera at a time
+    if (on) this.el.classList.remove("min");
+    this.el.classList.toggle("max", on);
+    stations.forEach(s => s.syncButtons());
+    if (on) this.el.scrollIntoView({behavior: "smooth", block: "start"});
+  }
+  syncButtons() {
+    const min = this.el.classList.contains("min"), max = this.el.classList.contains("max");
+    const m = this.q(".minb"), x = this.q(".maxb");
+    m.title = min ? "Expand" : "Minimize"; m.setAttribute("aria-label", m.title);
+    m.innerHTML = `<svg class="icon"><use href="#i-${min ? "expand" : "min"}"/></svg>`;
+    x.title = max ? "Back to normal size" : "Maximize"; x.setAttribute("aria-label", x.title);
+    x.innerHTML = `<svg class="icon"><use href="#i-${max ? "restore" : "max"}"/></svg>`;
+  }
+  /* Status for the one-line summary, the badge and the jump strip */
+  setState(kind, text, summary) {
+    this.status = kind;
+    const b = this.q(".state");
+    b.className = `badge state ${kind === "alert" ? "b-bad" : kind === "warn" ? "b-warn" : kind === "live" ? "b-ok" : "b-off"}`;
+    b.textContent = text;
+    this.q(".mini").textContent = summary;
+    renderCamJump();
   }
 
   fillPcs(force) {
@@ -792,6 +876,7 @@ class Station {
   }
 
   renderAssigned() {
+    if (this.q(".pcname")) this.q(".pcname").textContent = this.q(".pc").value;
     if (!state) return;
     const box = this.q(".assigned"), html = summaryHtml(this.q(".pc").value);
     if (box.innerHTML !== html) box.innerHTML = html;
@@ -827,6 +912,7 @@ class Station {
     idle.style.display = "none";
     this.on = true; this.last = null;
     this.q(".go").textContent = "Stop camera";
+    if (this.setState) this.setState("live", "Live", "Starting…");
     await listCams();
     const dev = this.stream.getVideoTracks()[0].getSettings().deviceId;
     if (dev) { this.q(".cam").value = dev; store.set(`cam${this.i}`, dev); }
@@ -841,6 +927,7 @@ class Station {
     this.stream = null; this.last = null;
     this.q(".go").textContent = "Start camera";
     const idle = this.q(".idle"); idle.style.display = "flex"; idle.textContent = "Camera stopped.";
+    if (this.setState) this.setState("off", "Off", "Camera off");
     this.overlay.getContext("2d").clearRect(0, 0, this.overlay.width, this.overlay.height);
   }
 
@@ -969,10 +1056,45 @@ class Station {
     }
     const el = this.q(".verdict"); el.textContent = v; el.style.color = color;
     this.q(".vbar").innerHTML = barHtml;
+    const kind = d.covered || (user && user.alert) ? "alert" : user && user.state !== "ok" && user.name !== "unidentified" ? "warn" : "live";
+    const who = !user ? "nobody" : user.name === "unidentified" ? "face not visible" : user.display;
+    this.setState(kind, kind === "alert" ? (d.covered ? "Blocked" : "Alert") : "Live",
+                  `${v} · ${who} · ${d.persons} ${d.persons === 1 ? "person" : "people"}`);
   }
 }
 
 function fillPcSelect() { stations.forEach(s => s.fillPcs()); }
+
+/* Toolbar: cameras per row, minimize/expand all, and a strip of chips to jump to any camera */
+const CAM_COLS = [["auto", "Auto"], ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"]];
+function setCamCols(c) {
+  $("#stations").dataset.cols = c; store.set("camCols", c);
+  $("#cam-cols").innerHTML = CAM_COLS.map(([k, l]) => `<button class="chip" data-c="${k}" aria-pressed="${k === c}">${l}</button>`).join("");
+}
+$("#cam-cols").addEventListener("click", e => { const b = e.target.closest("[data-c]"); if (b) setCamCols(b.dataset.c); });
+$("#cam-min-all").onclick = () => stations.forEach(s => s.setMin(true));
+$("#cam-max-all").onclick = () => stations.forEach(s => s.setMin(false));
+let jumpQueued = false;
+function renderCamJump() {   // batched: cameras update their state every frame
+  if (jumpQueued) return; jumpQueued = true;
+  requestAnimationFrame(() => {
+    jumpQueued = false;
+    const dot = {alert: "var(--bad)", warn: "var(--warn)", live: "var(--ok)"};
+    const html = stations.length > 1 ? stations.map(s => `<button class="chip" data-j="${s.i}" title="${esc(s.q(".mini").textContent)}">` +
+      `<span class="dot" style="background:${dot[s.status] || "var(--muted)"}"></span>${esc(s.q(".pc").value || "Camera " + (s.i + 1))}` +
+      `${s.el.classList.contains("min") ? ` <span class="n">min</span>` : ""}</button>`).join("") : "";
+    if ($("#cam-jump").innerHTML !== html) $("#cam-jump").innerHTML = html;
+    const live = stations.filter(s => s.on).length;
+    $("#cam-count").textContent = `${stations.length} camera${stations.length === 1 ? "" : "s"} · ${live} running`;
+  });
+}
+$("#cam-jump").addEventListener("click", e => {
+  const b = e.target.closest("[data-j]"); if (!b) return;
+  const st = stations.find(s => s.i === +b.dataset.j); if (!st) return;
+  st.setMin(false); st.el.scrollIntoView({behavior: "smooth", block: "start"});
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") stations.forEach(s => s.el.classList.contains("max") && s.setMax(false)); });
+setCamCols(store.get("camCols") || "auto");
 function addStation() {
   const next = stations.length ? Math.max(...stations.map(s => s.i)) + 1 : 0;
   const st = new Station(next);
@@ -986,9 +1108,11 @@ $("#add-station").onclick = async () => {
   let pc = pcOptions().find(p => !used.has(p));
   if (!pc) { pc = nextPcName(); await createPc(pc); }
   const st = addStation();
-  st.fillPcs(pc); store.set(`pc${st.i}`, pc);
+  st.fillPcs(pc); store.set(`pc${st.i}`, pc); renderCamJump();
+  st.el.scrollIntoView({behavior: "smooth", block: "start"});
 };
-for (let k = 0, n = Math.max(1, Math.min(4, +store.get("stations") || 1)); k < n; k++) addStation();
+for (let k = 0, n = Math.max(1, Math.min(64, +store.get("stations") || 1)); k < n; k++) addStation();
+renderCamJump();
 if (navigator.mediaDevices) navigator.mediaDevices.addEventListener("devicechange", listCams);
 
 /* ================= CCTV: one room camera, everyone in view ================= */
@@ -1284,7 +1408,7 @@ function checkReset(s) {
   const seen = store.get("reset_id");
   if (seen === null || seen === s.reset_id) { store.set("reset_id", s.reset_id); return false; }
   try {
-    Object.keys(localStorage).filter(k => /^(pc|cam)\d+$/.test(k) || ["stations", "cctv-name", "cctv-cam", "pcFilter"].includes(k))
+    Object.keys(localStorage).filter(k => /^(pc|cam|min)\d+$/.test(k) || ["stations", "cctv-name", "cctv-cam", "pcFilter", "camCols"].includes(k))
       .forEach(k => localStorage.removeItem(k));
   } catch (e) {}
   store.set("reset_id", s.reset_id);
