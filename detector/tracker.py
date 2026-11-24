@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timedelta
 
 import config
+from usage import UsageLog
 
 
 def load_assignments():
@@ -32,7 +33,6 @@ class Tracker:
         self.live = live
         self.start_wall = datetime.now()
         self.presence = {}       # (pc, name) -> {"first": t, "last": t}   short gap, for alerts
-        self.sessions = {}       # (pc, name) -> {"start": t, "last": t}   long gap, for usage log
         self.crowd_since = {}    # pc -> t when crowding started
         self.covered_since = {}  # pc -> t when its camera became covered
         self.last_frame = {}     # pc -> t of the last frame from its camera
@@ -40,7 +40,7 @@ class Tracker:
         self.spoof_seen = {}     # (pc, name) -> {"first": t, "last": t}  a face shown on a phone/screen
         self.new_alerts = []     # raised since the caller last took them (for incidents)
         config.DATA_DIR.mkdir(exist_ok=True)
-        self._init_csv(config.SESSIONS_LOG, ["name", "pc", "start", "end", "minutes", "assigned_here"])
+        self.usage = UsageLog(config.SESSIONS_LOG, self.stamp, self.assigned_elsewhere)   # everyone, every visit
         self._init_csv(config.ALERTS_LOG, ["time", "type", "pc", "name", "detail"])
 
     # ---------- helpers ----------
@@ -64,14 +64,8 @@ class Tracker:
         with open(config.ALERTS_LOG, "a", newline="") as f:
             csv.writer(f).writerow([self.stamp(t), kind, pc, name, detail])
         print("ALERT", f"[{self.stamp(t)}] {kind}: {detail}")
+        self.usage.note_alert(pc, name, kind)
         self.new_alerts.append({"time": self.stamp(t), "type": kind, "pc": pc, "name": name, "detail": detail})
-
-    def _close_session(self, key, s):
-        pc, name = key
-        minutes = (s["last"] - s["start"]) / 60
-        with open(config.SESSIONS_LOG, "a", newline="") as f:
-            csv.writer(f).writerow([name, pc, self.stamp(s["start"]), self.stamp(s["last"]),
-                                    f"{minutes:.2f}", self.is_assigned(pc, name)])
 
     def is_assigned(self, pc, name):
         return name in self.assignments.get(pc, ())
@@ -105,11 +99,6 @@ class Tracker:
                 self.fired = {f for f in self.fired if f[1:] != key}   # new visit: alerts can fire again
             else:
                 p["last"] = t
-            s = self.sessions.get(key)
-            if s is None:
-                self.sessions[key] = {"start": t, "last": t}
-            else:
-                s["last"] = t
             if self.is_assigned(pc, name):
                 self.last_assigned_seen[pc] = t
 
@@ -122,10 +111,10 @@ class Tracker:
             self.fired.discard(("CROWDING", pc, "-"))
 
         self._check_people(t)
-        for key, s in list(self.sessions.items()):
-            if t - s["last"] > config.SESSION_GAP:
-                self._close_session(key, s)
-                del self.sessions[key]
+
+    def log_people(self, t, pc, people):
+        """Usage log (usage.py): every person this PC camera sees, users and bystanders alike."""
+        self.usage.update(t, pc, people)
 
     def check_liveness(self, t, pc, people):
         """Liveness rules (liveness.py) for one PC camera's people:
@@ -213,6 +202,4 @@ class Tracker:
             self.fired = {f for f in self.fired if f[0] in ("CROWDING", "CAMERA_BLOCKED")}
 
     def close(self):
-        for key, s in self.sessions.items():
-            self._close_session(key, s)
-        self.sessions.clear()
+        self.usage.close()

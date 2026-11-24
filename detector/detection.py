@@ -203,7 +203,7 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
             elif person["name"] is None:
                 hint = board.hint(cam_name, sig, now)                # nobody's face yet: maybe someone seen elsewhere
         people.append({
-            "id": person["pid"], "track": tid, "name": person["name"] or UNIDENTIFIED,
+            "id": person["pid"], "uid": person["uid"], "track": tid, "name": person["name"] or UNIDENTIFIED,
             "score": round(person["score"], 2), "user": False,
             "reid": bool(person.get("reid")),   # name from clothes/body re-ID, not yet confirmed by a face
             "reid_sim": person.get("reid_sim"),

@@ -193,10 +193,24 @@ while the app is stopped.
 | **Cameras** | Choose *This camera is PC-0X* and the camera device, **Start camera**. **Add camera** for a second camera on the same computer. Under the video: who is there, the verdict, image brightness/contrast. |
 | **CCTV** | A room camera: everyone in view, who is in the room and for how long, room log, the head-pose/distance test results. |
 | **Students** | Enrolled students, **Watchlist** checkbox (banned from all PCs), enrollment, **Check a photo**, **Check a video** (see below). |
-| **PCs** | Every PC, camera status, who is using it now, assigned students (**Edit** opens a searchable list; a PC can have several students), add/remove PCs, usage log. |
+| **PCs** | Every PC, camera status, who is using it now, assigned students (**Edit** opens a searchable list; a PC can have several students), add/remove PCs. |
+| **Usage log** | Every visit of every person to every PC camera (see below): tabs, filters, totals, **Export CSV**. |
 | **How it works** | Pipeline, alert thresholds, course lessons table, **Image processing lab** (upload a photo, see every lesson's operation with its histogram, simulate a dim room). |
 
 Rail buttons: alarm sound on/off, light/dark mode.
+
+**Usage log.** One row per person per visit, for everyone a PC camera sees, sorted into tabs:
+**PC use** (a student in the PC's seat: the counted usage), **Unknown at a PC** (not enrolled, or face never
+seen), **Bystanders** (next to or behind the user) and **Photo / phone** (a face shown on a device). Each row
+has start, end, duration and active time (h:mm:ss), breaks and time away, own PC or not, the PCs the student
+is assigned to, how they were identified (face / clothes / tracking, in % of the frames), the best face match
+and the alerts raised during the visit. Filters: name, PC, date range, own PC, minimum length, in progress or
+finished, identified by, with/without alerts, and sort order. **Export CSV** saves exactly what is shown.
+
+A visit ends when the person has been gone for `SESSION_GAP` (2 minutes). Leaving for 30 minutes and coming
+back is therefore a **new row**; a shorter absence stays in the same row and is counted as a break (with the
+time away, so *active* = duration − breaks). Visits shorter than 3 s (someone walking past) are not logged.
+An old `sessions.csv` is converted to the new columns automatically.
 
 What the colors mean on the video: **green** = assigned to this PC, **orange** = not assigned, timer running,
 **red** = alert raised, **gray** = bystander or face not visible yet.
@@ -309,6 +323,7 @@ after changing them):
 | `ABSENT_SEC` | 600 | none of a PC's assigned students there → alert after (camera online only) |
 | `CROWD_COUNT`, `CROWD_SEC` | 3, 30 | this many people at one PC for this long → alert |
 | `TAMPER_SEC` | 5 | camera covered / blank / blinded → alert after |
+| `SESSION_GAP` | 120 | gone this long = the visit ends; coming back starts a new usage log row |
 | `MATCH_THRESHOLD` | 0.45 | face similarity needed to count as a student |
 | `ENHANCE_METHOD` | `brightness` | low-light correction: `brightness`, `normalize`, `equalize`, `clahe` |
 | `REID_WINDOW_SEC` | 300 | how long a camera remembers people's clothes/body for re-identification |
@@ -485,7 +500,8 @@ instead of being lowered to the edge. The page also shows the confusion matrix a
     ├── evaluate_accuracy.py         recall, false accepts, precision, confusion matrix per threshold
     ├── preprocess.py                course lessons: brightness/contrast, negative, normalization, equalization
     ├── faces.py                     face detection + recognition (cosine similarity)
-    ├── tracker.py                   usage sessions and alert rules (PC cameras)
+    ├── tracker.py                   alert rules (PC cameras)
+    ├── usage.py                     usage log: every visit of every person, with breaks
     ├── room.py                      room presence, room log and alerts (CCTV cameras)
     ├── drawing.py                   labels and drawing
     ├── incidents.py                 incident feed with snapshots

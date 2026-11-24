@@ -135,6 +135,7 @@ class Gallery:
     def __init__(self):
         self.people = {}     # pid -> {"pid", "name", "score", "at", "sig", "seen", "reid"}
         self.tracks = {}     # YOLO track id -> pid
+        self.next_uid = 1    # pids are reused (small numbers); uid never is (for the usage log)
 
 
     def person_for(self, track_id, sig, now, taken, box=None):
@@ -216,8 +217,9 @@ class Gallery:
         pid = 1
         while pid in self.people:    # reuse the lowest free number, so numbers don't keep growing
             pid += 1
-        p = {"pid": pid, "name": name, "score": score, "at": 0.0 if name is None else now,
+        p = {"pid": pid, "uid": self.next_uid, "name": name, "score": score, "at": 0.0 if name is None else now,
              "sig": sig, "seen": now, "reid": False}
+        self.next_uid += 1
         self.people[pid] = p
         if track_id is not None:
             self.tracks[track_id] = pid

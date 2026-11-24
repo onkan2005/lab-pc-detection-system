@@ -109,7 +109,7 @@
   .btn.danger { background: none; color: var(--bad); border: 1px solid transparent; }
   .btn.danger:hover { background: var(--bad-bg); }
   button:disabled { opacity: .5; cursor: progress; }
-  select, input[type=text], input[type=search] { font: inherit; font-size: 14px; min-height: 38px; padding: 0 10px; border-radius: 10px;
+  select, input[type=text], input[type=search], input[type=date] { font: inherit; font-size: 14px; min-height: 38px; padding: 0 10px; border-radius: 10px;
          border: 1px solid var(--border); background: var(--card); color: var(--text); }
   .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 500; color: var(--muted); }
   .msg { font-size: 13px; color: var(--ok); }
@@ -258,6 +258,10 @@
   .stat .k { font-size: 12px; color: var(--muted); }
   .stat .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .calc td { font-size: 13px; vertical-align: top; }
+  .log-filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .log-filters input, .log-filters select { width: 100%; }
+  #sessions td { font-size: 13px; white-space: nowrap; } #sessions td.wrap { white-space: normal; }
+  .dur { font-family: var(--mono); }
   .calc .ok { color: var(--ok); } .calc .no { color: var(--bad); }
   @media (max-width: 1100px) { .vt-form, .vt-live { grid-template-columns: 1fr; } }
 
@@ -280,6 +284,7 @@
   <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
   <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
@@ -299,6 +304,7 @@
       <a href="#cctv" data-page="cctv" data-tip="CCTV (room)" aria-label="CCTV room camera"><svg class="icon"><use href="#i-cctv"/></svg><span class="label">CCTV</span><span class="count" id="cctv-count" style="display:none"></span></a>
       <a href="#students" data-page="students" data-tip="Students" aria-label="Students"><svg class="icon"><use href="#i-users"/></svg><span class="label">Students</span><span class="count" id="students-count" style="display:none"></span></a>
       <a href="#pcs" data-page="pcs" data-tip="PCs" aria-label="PCs"><svg class="icon"><use href="#i-monitor"/></svg><span class="label">PCs</span></a>
+      <a href="#log" data-page="log" data-tip="Usage log" aria-label="Usage log"><svg class="icon"><use href="#i-clock"/></svg><span class="label">Usage log</span></a>
       <a href="#help" data-page="help" data-tip="How it works" aria-label="How it works"><svg class="icon"><use href="#i-help"/></svg><span class="label">How it works</span></a>
     </nav>
     <div class="rail-foot">
@@ -492,8 +498,38 @@
           <span class="msg" id="assign-msg" role="status"></span>
         </form>
       </div>
-      <div class="card" style="margin-top:16px"><h2>Usage log <span class="muted">how long each person used each PC</span></h2>
-        <div class="table-wrap" id="sessions"></div></div>
+    </section>
+
+    <!-- USAGE LOG -->
+    <section class="page" id="page-log" aria-labelledby="h-log">
+      <div class="page-head">
+        <div><h1 id="h-log">Usage log</h1>
+          <p id="log-intro">Every person every PC camera saw, one row per visit. A visit ends when the person has been gone for 2 minutes,
+            so coming back later starts a new row; shorter absences are counted as breaks.</p></div>
+        <button class="btn" id="log-export">Export CSV</button>
+      </div>
+      <div class="filters" role="tablist" aria-label="Kind of visit" id="log-tabs"></div>
+      <div class="card" style="margin-top:12px">
+        <div class="log-filters">
+          <label class="field">Name <input type="search" id="lf-name" placeholder="Search a name" autocomplete="off"></label>
+          <label class="field">PC <select id="lf-pc"><option value="">All PCs</option></select></label>
+          <label class="field">From <input type="date" id="lf-from"></label>
+          <label class="field">To <input type="date" id="lf-to"></label>
+          <label class="field">Own PC? <select id="lf-own"><option value="">Any</option><option value="yes">Own PC</option><option value="no">Not their PC</option></select></label>
+          <label class="field">At least <select id="lf-min"><option value="0">Any length</option><option value="60">1 min</option><option value="300">5 min</option>
+            <option value="900">15 min</option><option value="1800">30 min</option><option value="3600">1 hour</option></select></label>
+          <label class="field">Status <select id="lf-status"><option value="">All</option><option value="live">In progress</option><option value="done">Finished</option></select></label>
+          <label class="field">Identified by <select id="lf-how"><option value="">Anything</option><option value="face">Mostly face</option>
+            <option value="clothes">Mostly clothes (re-ID)</option><option value="tracking">Mostly tracking</option></select></label>
+          <label class="field">Alerts <select id="lf-alerts"><option value="">Any</option><option value="yes">With alerts</option><option value="no">No alerts</option></select></label>
+          <label class="field">Sort <select id="lf-sort"><option value="start">Newest first</option><option value="duration">Longest first</option>
+            <option value="name">Name</option><option value="pc">PC</option></select></label>
+          <button class="btn" id="lf-reset" style="align-self:flex-end">Clear filters</button>
+        </div>
+        <div class="tiles" id="log-tiles"></div>
+        <div class="table-wrap" id="sessions" style="margin-top:14px"></div>
+        <div class="muted" id="log-foot" style="margin-top:8px;font-size:13px"></div>
+      </div>
     </section>
 
     <!-- HELP -->
@@ -585,7 +621,7 @@ const store = {
 let state = null;
 
 /* ---- Navigation: one page per URL hash (#overview, #cameras, …) so links, refresh and Back all work ---- */
-const PAGES = ["overview", "cameras", "cctv", "students", "pcs", "help"];
+const PAGES = ["overview", "cameras", "cctv", "students", "pcs", "log", "help"];
 function showPage() {
   const page = PAGES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
   document.querySelectorAll(".page").forEach(s => s.classList.toggle("active", s.id === "page-" + page));
@@ -593,6 +629,7 @@ function showPage() {
   document.title = `${document.querySelector(".nav a[aria-current] .label").textContent} · PC Usage Monitor`;
   if (page === "students") { loadEnrollment(); vtFillExpect(); vtRecent(); }
   if (page === "cctv") loadCctvTest();
+  if (page === "log") setTimeout(loadLog);   // after the whole script has run (its variables exist)
   window.scrollTo(0, 0);
 }
 window.addEventListener("hashchange", showPage);
@@ -1254,12 +1291,6 @@ function render(s) {
   renderPCs(s);
   renderIncidents(s);
   renderEnrollPending(s);
-  const active = s.active_sessions.map(a => ({...a, live: true}));
-  $("#sessions").innerHTML = table(active.concat(s.sessions), [
-    ["Name", r => esc(r.name)], ["PC", r => esc(r.pc)],
-    ["Start", r => r.live ? `<span class="badge b-ok">in progress</span>` : esc(r.start)],
-    ["End", r => r.live ? "–" : esc(r.end)], ["Minutes", r => esc(r.minutes)],
-    ["Own PC?", r => (r.assigned_here === true || r.assigned_here === "True") ? "yes" : `<span style="color:var(--warn)">no</span>`]]);
   $("#c-th").textContent = s.config.MATCH_THRESHOLD;
   $("#c-gap").textContent = fmt(s.config.SESSION_GAP);
   $("#rules").innerHTML = table([
@@ -1348,6 +1379,100 @@ async function testPhoto(file) {
 }
 /* ================= VIDEO TEST: live view of the whole pipeline on a recorded video ================= */
 const VT_COLORS = {preprocess: "#a78bfa", yolo: "#3b82f6", reid: "#14b8a6", face_detect: "#f59e0b", liveness: "#ec4899", arcface: "#ef4444"};
+/* ---- Usage log page: every visit, in tabs by kind, with filters ---- */
+const hms = sec => { sec = Math.max(0, Math.round(+sec || 0)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; };
+const LOG_TABS = [
+  ["use", "PC use", "a student in the PC's seat (counted usage)", r => r.role === "user" && !UNNAMED_LOG.includes(r.name)],
+  ["unknown", "Unknown at a PC", "someone not enrolled, or whose face was never seen, in a PC's seat", r => r.role === "user" && UNNAMED_LOG.includes(r.name)],
+  ["bystander", "Bystanders", "people next to or behind the user; not counted as PC use", r => r.role === "bystander"],
+  ["spoof", "Photo / phone", "a face shown on a phone or screen; not counted", r => r.role === "spoof"],
+  ["all", "All", "every visit", r => true]];
+const UNNAMED_LOG = ["unknown", "unidentified"];
+let logData = null, logTab = "use", logTimer = null;
+const own = r => r.assigned_here === true || r.assigned_here === "True";
+const mainHow = r => (r.identified_by || "").split(" ")[0].split(":")[0];
+function logName(r) {
+  if (r.name === "unknown") return `<span style="color:var(--warn)">Unknown person</span>`;
+  if (r.name === "unidentified") return `<span class="muted">Face not seen</span>`;
+  return esc(r.name);
+}
+async function loadLog() {
+  clearTimeout(logTimer);
+  try { logData = await (await fetch("/api/sessions")).json(); } catch (e) { logData = logData || null; }
+  if (logData) {
+    const sel = $("#lf-pc"), cur = sel.value;
+    sel.innerHTML = `<option value="">All PCs</option>` + logData.pcs.map(p => `<option>${esc(p)}</option>`).join("");
+    sel.value = logData.pcs.includes(cur) ? cur : "";
+    $("#log-intro").textContent = `Every person every PC camera saw, one row per visit. A visit ends when the person has been gone for ` +
+      `${fmt(logData.session_gap)}, so coming back later starts a new row; shorter absences (over ${logData.presence_gap}s) are counted as breaks. ` +
+      (logData.retention_days ? `Kept for ${logData.retention_days} days.` : "");
+    renderLog();
+  }
+  if (location.hash === "#log") logTimer = setTimeout(loadLog, 5000);
+}
+function logRows() {
+  const f = id => $(id).value;
+  const q = f("#lf-name").trim().toLowerCase(), pc = f("#lf-pc"), from = f("#lf-from"), to = f("#lf-to");
+  const rows = logData.active.concat(logData.rows).filter(r =>
+    (!q || r.name.toLowerCase().includes(q) || (q === "unknown" && UNNAMED_LOG.includes(r.name))) &&
+    (!pc || r.pc === pc) && (!from || r.start.slice(0, 10) >= from) && (!to || r.start.slice(0, 10) <= to) &&
+    (!f("#lf-own") || (f("#lf-own") === "yes") === own(r)) && +r.duration_sec >= +f("#lf-min") &&
+    (!f("#lf-status") || (f("#lf-status") === "live") === !!r.live) && (!f("#lf-how") || mainHow(r) === f("#lf-how")) &&
+    (!f("#lf-alerts") || (f("#lf-alerts") === "yes") === !!r.alerts));
+  const by = f("#lf-sort");
+  return rows.sort((a, b) => by === "duration" ? b.duration_sec - a.duration_sec : by === "name" ? a.name.localeCompare(b.name)
+    : by === "pc" ? a.pc.localeCompare(b.pc) || b.start.localeCompare(a.start) : (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.start.localeCompare(a.start));
+}
+function renderLog() {
+  if (!logData) return;
+  const all = logRows(), tab = LOG_TABS.find(t => t[0] === logTab);
+  $("#log-tabs").innerHTML = LOG_TABS.map(([k, label, tip, fn]) =>
+    `<button class="chip" role="tab" data-t="${k}" title="${esc(tip)}" aria-pressed="${logTab === k}">${label} <span class="n">${all.filter(fn).length}</span></button>`).join("");
+  const rows = all.filter(tab[3]);
+  const total = rows.reduce((a, r) => a + +r.duration_sec, 0), active = rows.reduce((a, r) => a + +r.active_sec, 0);
+  const people = new Set(rows.filter(r => !UNNAMED_LOG.includes(r.name)).map(r => r.name));
+  const tile = (v, k, sub = "") => `<div class="stat"><div class="v">${v}</div><div class="k">${k}</div>${sub ? `<div class="s">${sub}</div>` : ""}</div>`;
+  $("#log-tiles").innerHTML = tile(rows.length, "visits", `${rows.filter(r => r.live).length} in progress`) +
+    tile(`<span class="dur">${hms(total)}</span>`, "total time", `${hms(active)} without breaks`) +
+    tile(`<span class="dur">${hms(rows.length ? total / rows.length : 0)}</span>`, "average visit") +
+    tile(people.size, "different students", rows.filter(r => UNNAMED_LOG.includes(r.name)).length + " unknown visits") +
+    tile(rows.filter(r => !own(r) && !UNNAMED_LOG.includes(r.name)).length, "not at their own PC") +
+    tile(rows.filter(r => r.alerts).length, "with alerts");
+  const LIMIT = 300;
+  $("#sessions").innerHTML = table(rows.slice(0, LIMIT), [
+    ["Name", r => `<b>${logName(r)}</b>${r.assigned_to ? `<br><span class="muted">assigned ${esc(r.assigned_to.replace(/ /g, ", "))}</span>` : ""}`],
+    ["PC", r => esc(r.pc)],
+    ["Kind", r => r.role === "user" ? `<span class="badge ${UNNAMED_LOG.includes(r.name) ? "b-warn" : "b-ok"}">at the PC</span>`
+      : r.role === "spoof" ? `<span class="badge b-bad">photo / phone</span>` : `<span class="badge b-off">bystander</span>`],
+    ["Start", r => esc(r.start)],
+    ["End", r => r.live ? `<span class="badge b-ok">in progress</span>${r.seen_ago > 3 ? `<br><span class="muted">last seen ${fmt(r.seen_ago)} ago</span>` : ""}` : esc(r.end)],
+    ["Duration", r => `<span class="dur">${hms(r.duration_sec)}</span>`],
+    ["Active", r => `<span class="dur" title="duration minus breaks">${hms(r.active_sec)}</span>`],
+    ["Breaks", r => +r.breaks ? `${r.breaks} <span class="muted">(${hms(r.away_sec)} away)</span>` : `<span class="muted">0</span>`],
+    ["Own PC?", r => UNNAMED_LOG.includes(r.name) ? `<span class="muted">–</span>` : own(r) ? "yes" : `<span style="color:var(--warn)">no</span>`],
+    ["Identified by", r => r.identified_by ? esc(r.identified_by.replace(/ /g, ", ")) : `<span class="muted">–</span>`],
+    ["Best match", r => r.best_score && +r.best_score > 0 ? (+r.best_score).toFixed(2) : `<span class="muted">–</span>`],
+    ["Alerts", r => r.alerts ? `<span style="color:var(--bad)">${esc(r.alerts.split(" ").map(x => x.replace(/_/g, " ")).join(", "))}</span>` : `<span class="muted">–</span>`]]);
+  $("#log-foot").textContent = (rows.length > LIMIT ? `Showing the first ${LIMIT} of ${rows.length} visits (narrow the filters, or export). ` : "") +
+    `${tab[2][0].toUpperCase() + tab[2].slice(1)}. "Active" = duration minus breaks. "Identified by" = how the person was known in the frames of the visit.`;
+}
+$("#log-tabs").addEventListener("click", e => { const b = e.target.closest("[data-t]"); if (b) { logTab = b.dataset.t; renderLog(); } });
+document.querySelectorAll(".log-filters input, .log-filters select").forEach(el => el.addEventListener("input", renderLog));
+$("#lf-reset").addEventListener("click", () => {
+  document.querySelectorAll(".log-filters input").forEach(el => el.value = "");
+  document.querySelectorAll(".log-filters select").forEach(el => el.selectedIndex = 0); renderLog(); });
+$("#log-export").addEventListener("click", () => {   // what is on screen (this tab + filters), as a CSV file
+  if (!logData) return;
+  const rows = logRows().filter(LOG_TABS.find(t => t[0] === logTab)[3]);
+  const cols = ["start", "end", "name", "pc", "role", "duration", "active", "breaks", "away", "own_pc", "assigned_to", "identified_by", "best_score", "alerts"];
+  const val = r => ({...r, end: r.live ? "in progress" : r.end, duration: hms(r.duration_sec), active: hms(r.active_sec), away: hms(r.away_sec),
+                     own_pc: UNNAMED_LOG.includes(r.name) ? "" : own(r) ? "yes" : "no"});
+  const csv = [cols.join(",")].concat(rows.map(r => { const v = val(r); return cols.map(c => `"${String(v[c] ?? "").replace(/"/g, '""')}"`).join(","); })).join("\n");
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv], {type: "text/csv"}));
+  a.download = `usage-log-${logTab}-${new Date().toISOString().slice(0, 10)}.csv`; a.click(); URL.revokeObjectURL(a.href);
+});
+
 /* ---- Recognition accuracy (evaluate_accuracy.py): recall, false accepts, precision per threshold ---- */
 async function accRun() {
   const btn = $("#acc-run"); btn.disabled = true; btn.textContent = "Measuring…";

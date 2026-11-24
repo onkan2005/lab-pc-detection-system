@@ -117,6 +117,7 @@ class Engine:
                      and (p["user"] or p["name"] in self.tracker.watchlist)}   # user + banned bystanders
             self.tracker.update(t, pc, names, result["persons"], result["covered"])
             self.tracker.check_liveness(t, pc, result["people"])
+            self.tracker.log_people(t, pc, result["people"])
             people = describe(pc, result, self.tracker, t)
 
             new_alerts = self.tracker.take_new_alerts()
@@ -304,19 +305,29 @@ def index():
 @app.route("/api/state")
 def state():
     t, tr = engine.now(), engine.tracker
-    active = [{"name": n, "pc": pc, "minutes": round((s["last"] - s["start"]) / 60, 2),
-               "assigned_here": tr.is_assigned(pc, n)} for (pc, n), s in tr.sessions.items()]
     return jsonify({
         "clock": tr.stamp(t), "pcs": engine.overview(), "assignments": engine.assignments,
         "people": sorted(set(engine.recognizer.names)), "watchlist": engine.watchlist,
         "enroll_pending": enrollment_changes(engine.last_report),
         "incidents": engine.incidents.recent(), "open_incidents": engine.incidents.open_count(),
-        "active_sessions": active, "sessions": read_csv_tail(config.SESSIONS_LOG),
         "alerts_total": len(read_csv_tail(config.ALERTS_LOG, 10_000)),
         "config": {k: getattr(config, k) for k in [
             "MATCH_THRESHOLD", "MIN_FACE_PX", "PRIVACY_BLUR", "RETENTION_DAYS", "PRESENCE_GAP", "SESSION_GAP", "WATCHLIST_SEC", "TAMPER_SEC",
             "UNAUTHORIZED_SEC", "WRONG_SEAT_SEC", "ABSENT_SEC", "CROWD_COUNT", "CROWD_SEC"]},
     })
+
+
+@app.route("/api/sessions")
+def sessions():
+    """The whole usage log (kept for RETENTION_DAYS) + the visits still in progress; the page filters it."""
+    from usage import read_all
+    t, tr = engine.now(), engine.tracker
+    with engine.lock:
+        active = tr.usage.active(t)
+    return jsonify({"active": active, "rows": read_all(config.SESSIONS_LOG)[::-1],
+                    "pcs": engine.pc_list(), "assignments": engine.assignments,
+                    "session_gap": config.SESSION_GAP, "presence_gap": config.PRESENCE_GAP,
+                    "retention_days": config.RETENTION_DAYS})
 
 
 @app.route("/api/frame", methods=["POST"])
