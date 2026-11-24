@@ -50,6 +50,9 @@ class RoomTracker:
         if key in self.fired:
             return
         self.fired.add(key)
+        if not self.alerts_log.exists():   # (deleted by a reset)
+            with open(self.alerts_log, "w", newline="") as f:
+                csv.writer(f).writerow(["time", "type", "pc", "name", "detail"])
         with open(self.alerts_log, "a", newline="") as f:
             csv.writer(f).writerow([self.stamp(t), kind, cam, name, detail])
         if not self.quiet:
@@ -62,6 +65,9 @@ class RoomTracker:
         return alerts
 
     def _log_visit(self, cam, name, v):
+        if not self.room_log.exists():     # (deleted by a reset)
+            with open(self.room_log, "w", newline="") as f:
+                csv.writer(f).writerow(["name", "camera", "entered", "left", "minutes"])
         with open(self.room_log, "a", newline="") as f:
             csv.writer(f).writerow([name, cam, self.stamp(v["first"]), self.stamp(v["last"]),
                                     f"{(v['last'] - v['first']) / 60:.2f}"])

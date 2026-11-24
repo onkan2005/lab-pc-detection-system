@@ -56,6 +56,13 @@ def load_recognizer():
     return Recognizer() if config.EMBEDDINGS_FILE.exists() else NoRecognizer()
 
 
+def marker_time():
+    try:
+        return config.RESET_MARKER.stat().st_mtime
+    except OSError:
+        return None
+
+
 def load_json(path, default):
     return json.loads(path.read_text()) if path.exists() else default
 
@@ -67,9 +74,18 @@ class Engine:
         print("Loading models...")
         new_camera()                           # loads/downloads YOLO26 once at startup
         self.face_app = load_face_app()
-        self.recognizer = load_recognizer()
         self.lock = threading.Lock()           # one frame at a time through the models
         self.t0 = time.monotonic()
+        self.reset_mark = marker_time()        # reset.py touches this; then all memory below is cleared
+        self.load_data()
+        self.photo_yolo = None                 # YOLO26 for "Check a photo" (loaded on first use)
+        self.video_face_app = None             # separate face models for video tests (loaded on first use)
+        self.next_cleanup = 0.0
+        self.cleanup()
+
+    def load_data(self):
+        """Everything that comes from the data folder or was learned while running (not the models)."""
+        self.recognizer = load_recognizer()
         self.assignments = load_assignments()  # {"PC-01": ["juan", "maria"], ...}
         self.watchlist = load_json(config.WATCHLIST_FILE, [])
         self.tracker = Tracker(self.assignments, watchlist=self.watchlist)
@@ -80,10 +96,21 @@ class Engine:
         self.sightings = Sightings()           # shared by all cameras: who was last recognized where
         self.last_report = load_json(config.ENROLL_REPORT_FILE, None)   # photo quality + best photo per person
         self.video_tests = {}                  # id -> VideoTest (this session)
-        self.photo_yolo = None                 # YOLO26 for "Check a photo" (loaded on first use)
-        self.video_face_app = None             # separate face models for video tests (loaded on first use)
-        self.next_cleanup = 0.0
-        self.cleanup()
+        self.stranger_cache = None
+
+    def check_reset(self):
+        """reset.py was run while the app is running: drop the old feed, timers and visits from memory
+        (otherwise they stay on screen and get written back) and load the fresh data."""
+        mark = marker_time()
+        if mark == self.reset_mark:
+            return
+        with self.lock:
+            if mark == self.reset_mark:
+                return
+            self.reset_mark = mark
+            self.tracker.usage.open.clear()      # visits from before the reset are not logged
+            self.load_data()
+            print("Data was reset: cleared the feed, timers and visits in memory and reloaded the data folder.")
 
     def cleanup(self):
         """Data retention: delete incidents, snapshots and log rows older than RETENTION_DAYS (hourly)."""
@@ -103,6 +130,7 @@ class Engine:
 
     def process(self, pc, frame):
         """Runs detection + rules for one frame from one PC's camera. Returns what to draw."""
+        self.check_reset()
         with self.lock:
             self.cleanup()
             t = self.now()
@@ -140,6 +168,7 @@ class Engine:
     def process_cctv(self, cam, frame):
         """Detection + room rules for one frame from a CCTV (room) camera: everyone in view is
         found and named, nobody is "the PC user"."""
+        self.check_reset()
         with self.lock:
             self.cleanup()
             t = self.now()
@@ -304,6 +333,7 @@ def index():
 
 @app.route("/api/state")
 def state():
+    engine.check_reset()
     t, tr = engine.now(), engine.tracker
     return jsonify({
         "clock": tr.stamp(t), "pcs": engine.overview(), "assignments": engine.assignments,

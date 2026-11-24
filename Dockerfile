@@ -11,7 +11,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # OpenCV runtime libraries; a compiler only while installing (insightface builds a small extension)
 RUN apt-get update \
- && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 build-essential \
+ && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 tzdata build-essential \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/detector
@@ -37,7 +37,8 @@ COPY --chown=app:app detector/ .
 ENV PCMON_HOST=0.0.0.0 \
     PCMON_PORT=8765 \
     PCMON_DATA_DIR=/data \
-    PCMON_ENROLLMENT_DIR=/enrollment
+    PCMON_ENROLLMENT_DIR=/enrollment \
+    TZ=Asia/Manila
 
 EXPOSE 8765
 VOLUME ["/data"]

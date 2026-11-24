@@ -143,6 +143,8 @@ class UsageLog:
     def _close(self, v):
         if v["last"] - v["start"] < MIN_LOG_SEC:
             return
+        if not self.path.exists():         # (deleted by a reset)
+            write_all(self.path, [])
         with open(self.path, "a", newline="") as f:
             csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore").writerow(self.row(v))
 

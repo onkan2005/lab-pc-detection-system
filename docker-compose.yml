@@ -10,4 +10,6 @@ services:
     volumes:
       - ./enrollment:/enrollment:ro     # student photo folders (read-only)
       - ./detector/data:/data           # embeddings, assignments, logs, incident snapshots
+    environment:
+      - TZ=${TZ:-Asia/Manila}           # local time for logs and incidents (the container is UTC otherwise)
     restart: unless-stopped

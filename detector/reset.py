@@ -6,20 +6,22 @@ Deletes (inside the data folder):
 Keeps:
   enrollment/<name>/ photos  (they are enrolled again automatically)
 
-Usage (stop the app first):
+The app may keep running: reset.py leaves a marker file and the running app sees it within a second,
+then forgets everything it still had in memory (incident feed, timers, visits) and loads the new data.
+
+Usage:
   python reset.py               # asks for confirmation
   python reset.py --keep-pcs    # keep PCs, assignments and the watchlist
   python reset.py --yes         # no confirmation
   python reset.py --no-enroll   # don't re-enroll afterwards
-Docker:
-  docker compose down
-  docker compose run --rm pc-usage-monitor python reset.py
-  docker compose up -d
+Docker (while the app is running):
+  docker compose exec pc-usage-monitor python reset.py
 """
 import argparse
 import os
 import shutil
 import sys
+import time
 import urllib.request
 
 import config
@@ -41,12 +43,8 @@ def main():
     ap.add_argument("--keep-pcs", action="store_true", help="keep PCs, assignments and the watchlist")
     ap.add_argument("--yes", action="store_true", help="don't ask for confirmation")
     ap.add_argument("--no-enroll", action="store_true", help="don't re-enroll the photos afterwards")
-    ap.add_argument("--force", action="store_true", help="run even if the app seems to be running")
+    ap.add_argument("--force", action="store_true", help=argparse.SUPPRESS)   # old option, no longer needed
     args = ap.parse_args()
-
-    if app_is_running() and not args.force:
-        sys.exit("The app is still running. Stop it first (docker compose down, or Ctrl+C / pkill -f web.py), "
-                 "otherwise it writes the old data back.")
 
     data = config.DATA_DIR
     items = sorted(p for p in data.iterdir() if not (args.keep_pcs and p.name in KEEP_WITH_PCS)) if data.exists() else []
@@ -63,6 +61,7 @@ def main():
     for p in items:
         shutil.rmtree(p) if p.is_dir() else p.unlink()
     print(f"Deleted {len(items)} item(s).")
+    mark()   # a running app clears its memory now (and once more after re-enrolling, to load the new faces)
 
     if not args.no_enroll and people:
         from enroll import enroll
@@ -71,7 +70,14 @@ def main():
         report = enroll(load_face_app())
         for e in report:
             print(f"  {e['name']}: {e['used']}/{len(e['photos'])} photos usable")
-    print("Done. Start the app again.")
+    mark()
+    print("Done." + (" The running app has cleared its screen and loaded the new data." if app_is_running()
+                     else " Start the app."))
+
+
+def mark():
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    config.RESET_MARKER.write_text(time.strftime("%Y-%m-%d %H:%M:%S"))
 
 
 if __name__ == "__main__":

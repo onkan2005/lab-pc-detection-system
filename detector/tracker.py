@@ -61,6 +61,7 @@ class Tracker:
         if key in self.fired:
             return
         self.fired.add(key)
+        self._init_csv(config.ALERTS_LOG, ["time", "type", "pc", "name", "detail"])   # (deleted by a reset)
         with open(config.ALERTS_LOG, "a", newline="") as f:
             csv.writer(f).writerow([self.stamp(t), kind, pc, name, detail])
         print("ALERT", f"[{self.stamp(t)}] {kind}: {detail}")

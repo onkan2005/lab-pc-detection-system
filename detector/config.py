@@ -20,6 +20,7 @@ WATCHLIST_FILE = DATA_DIR / "watchlist.json"      # enrolled people who must not
 INCIDENTS_FILE = DATA_DIR / "incidents.json"
 SNAPSHOT_DIR = DATA_DIR / "snapshots"
 SESSIONS_LOG = DATA_DIR / "sessions.csv"
+RESET_MARKER = DATA_DIR / "reset.marker"          # written by reset.py: a running app then clears its memory too
 ALERTS_LOG = DATA_DIR / "alerts.csv"
 
 # --- Models (both pretrained, downloaded automatically on first run) ---

@@ -162,17 +162,16 @@ student and the threshold line.
 ## Reset the data (keep the photos)
 
 Wipes PCs and assignments, watchlist, incidents and snapshots, usage/alert logs and the old face
-embeddings, **keeps every photo in `enrollment/`**, and re-enrolls everyone. It asks for confirmation
-and refuses to run while the app is running (the app would write the old data back).
+embeddings, **keeps every photo in `enrollment/`**, and re-enrolls everyone. It asks for confirmation.
+The app may keep running: within a second it notices the reset, clears the incident feed, timers and
+visits it still had in memory, and loads the fresh data (the screen empties by itself).
 
-With Docker:
+With Docker (app running):
 ```bash
-docker compose down
-docker compose run --rm pc-usage-monitor python reset.py
-docker compose up -d
+docker compose exec pc-usage-monitor python reset.py
 ```
 
-Without Docker (from the `detector` folder, app stopped):
+Without Docker (from the `detector` folder):
 ```bash
 python reset.py
 ```
@@ -181,7 +180,7 @@ Options: `--keep-pcs` keeps PCs, assignments and the watchlist (clears only inci
 enrollment) · `--yes` skips the confirmation · `--no-enroll` doesn't re-enroll afterwards.
 
 To clear **only the incident feed**, delete `detector/data/incidents.json` and `detector/data/snapshots/`
-while the app is stopped.
+while the app is stopped (or restart it afterwards: `docker compose restart`).
 
 ---
 
