@@ -683,6 +683,17 @@ def set_pc(pc):
     return jsonify({"ok": True, "pc": pc, "assigned": names})
 
 
+@app.route("/api/pcs/<pc>/stopped", methods=["POST"])
+def pc_camera_stopped(pc):
+    """The camera panel of this PC was stopped or removed: show it offline right away (not 10 s later)."""
+    with engine.lock:
+        engine.stations.pop(pc, None)
+        engine.tracker.last_frame.pop(pc, None)
+        engine.tracker.covered_since.pop(pc, None)
+        engine.version += 1
+    return jsonify({"ok": True})
+
+
 @app.route("/api/pcs/<pc>", methods=["DELETE"])
 def delete_pc(pc):
     data = {k: v for k, v in engine.assignments.items() if k != pc}

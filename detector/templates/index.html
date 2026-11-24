@@ -833,9 +833,14 @@ class Station {
       this.renderAssigned(); renderCamJump();
     };
     this.q(".cam").onchange = () => store.set(`cam${this.i}`, this.q(".cam").value);
-    this.q(".rm").onclick = () => {
+    this.q(".rm").onclick = async () => {
       if (stations.length < 2) return;   // keep at least one camera panel
-      this.stop(); el.remove(); stations.splice(stations.indexOf(this), 1);
+      const pc = this.q(".pc").value;
+      if (this.on) this.stop(); else fetch(`/api/pcs/${encodeURIComponent(pc)}/stopped`, {method: "POST"}).catch(() => {});
+      // a PC made just for this camera (no students assigned, no other camera on it) goes away with it
+      if (state && pc in state.assignments && !state.assignments[pc].length && !stations.some(o => o !== this && o.q(".pc").value === pc))
+        fetch("/api/pcs/" + encodeURIComponent(pc), {method: "DELETE"}).then(() => poll(true)).catch(() => {});
+      el.remove(); stations.splice(stations.indexOf(this), 1);
       store.set("stations", String(stations.length)); renderCamJump();
     };
     this.q(".minb").onclick = () => this.setMin(!el.classList.contains("min"));
@@ -945,7 +950,11 @@ class Station {
     this.stream = null; this.last = null;
     this.q(".go").textContent = "Start camera";
     const idle = this.q(".idle"); idle.style.display = "flex"; idle.textContent = "Camera stopped.";
-    if (this.setState) { this.setState("off", "Off", "Camera off"); store.set(`run${this.i}`, "0"); }
+    if (this.setState) {
+      this.setState("off", "Off", "Camera off"); store.set(`run${this.i}`, "0");
+      const pc = this.q(".pc").value;   // the dashboard shows this PC offline right away
+      if (pc && pc !== "__new__") fetch(`/api/pcs/${encodeURIComponent(pc)}/stopped`, {method: "POST"}).catch(() => {});
+    }
     this.overlay.getContext("2d").clearRect(0, 0, this.overlay.width, this.overlay.height);
   }
 
@@ -1158,7 +1167,6 @@ $("#add-station").onclick = async () => {
   if (!pc) { pc = nextPcName(); await createPc(pc); }
   const st = addStation();
   st.fillPcs(pc); store.set(`pc${st.i}`, pc); renderCamJump();
-  st.el.scrollIntoView({behavior: "smooth", block: "start"});
 };
 for (let k = 0, n = Math.max(1, Math.min(64, +store.get("stations") || 1)); k < n; k++) addStation();
 renderCamJump();
