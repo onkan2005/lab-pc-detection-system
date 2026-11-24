@@ -201,7 +201,9 @@ Rail buttons: alarm sound on/off, light/dark mode.
 No refreshing needed: every page updates itself. Changes to PCs, students, the watchlist or incidents show on
 all open pages within a second; after an app update or restart the page reloads by itself and cameras that
 were running start again. Deleting a PC removes it from the dashboard at once; a camera panel that was on it
-stops and moves to a free PC instead of bringing the deleted PC back.
+stops and moves to a free PC instead of bringing the deleted PC back. Cameras are numbered by their place on the
+page: remove cameras 1–4 of 5 and the one left becomes Camera 1 on PC-01 (only PCs without students are
+renamed). A camera added or removed in one tab also shows in another open tab of the Cameras page.
 
 **Usage log.** One row per person per visit, for everyone a PC camera sees, sorted into tabs:
 **PC use** (a student in the PC's seat: the counted usage), **Unknown at a PC** (not enrolled, or face never

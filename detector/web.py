@@ -467,7 +467,9 @@ def video_test_start():
         test.run()
         upload.unlink(missing_ok=True)            # privacy: only the face-blurred result is kept
         prune_video_tests(config.VIDEO_TEST_KEEP)
+        engine.version += 1                       # open pages update their list of tests
     threading.Thread(target=work, daemon=True).start()
+    engine.version += 1
     return jsonify({"id": vid})
 
 
@@ -519,6 +521,7 @@ def video_test_delete(vid):
     if vid.isdigit():
         shutil.rmtree(config.VIDEO_TEST_DIR / vid, ignore_errors=True)
         engine.video_tests.pop(vid, None)
+        engine.version += 1
     return jsonify({"ok": True})
 
 

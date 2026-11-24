@@ -781,13 +781,15 @@ document.addEventListener("click", e => {
 document.addEventListener("keydown", e => { if (e.key === "Escape") closePicker(); });
 
 class Station {
-  constructor(index) {
-    this.i = index; this.on = false; this.last = null; this.stream = null; this.sentW = 0; this.sentH = 0;
+  constructor(index, cfg = {}) {
+    this.i = index;   // a fixed id; the "Camera N" label is the panel's position (renumbered when panels are removed)
+    this.cfg = {pc: cfg.pc || "", cam: cfg.cam || "", min: !!cfg.min, run: !!cfg.run};   // saved in the browser
+    this.on = false; this.last = null; this.stream = null; this.sentW = 0; this.sentH = 0;
     this.grab = document.createElement("canvas");
     const el = document.createElement("div");
     el.className = "card station";
     el.innerHTML = `
-      <div class="head"><h2><svg class="icon"><use href="#i-camera"/></svg>Camera ${index + 1} <span class="pcname"></span></h2>
+      <div class="head"><h2><svg class="icon"><use href="#i-camera"/></svg><span class="camno">Camera</span> <span class="pcname"></span></h2>
         <span class="mini">Camera off</span>
         <div class="tools"><span class="badge b-off state">Off</span>
           <button class="btn ghost icon-btn minb" title="Minimize" aria-label="Minimize"><svg class="icon"><use href="#i-min"/></svg></button>
@@ -817,31 +819,33 @@ class Station {
       const sel = this.q(".pc");
       if (sel.value === "__new__") {
         const name = (prompt("Name of the new PC:", nextPcName()) || "").trim().toUpperCase();
-        if (!/^[A-Z0-9_-]{1,20}$/.test(name)) { sel.value = store.get(`pc${this.i}`) || pcOptions()[0]; return; }
+        if (!/^[A-Z0-9_-]{1,20}$/.test(name)) { sel.value = this.cfg.pc || pcOptions()[0]; return; }
         await createPc(name);
         this.fillPcs(name);
       }
       const other = stations.find(o => o !== this && o.q(".pc").value === sel.value);
       if (other) {   // each camera is one PC: don't allow two cameras on the same PC
-        const back = store.get(`pc${this.i}`);
+        const back = this.cfg.pc;
         this.fillPcs(back && back !== sel.value ? back : undefined);
-        this.q(".perf").textContent = `${other.q(".pc").value} already belongs to Camera ${other.i + 1}. Each camera needs its own PC.`;
+        this.q(".perf").textContent = `${other.q(".pc").value} already belongs to Camera ${stations.indexOf(other) + 1}. Each camera needs its own PC.`;
         autoAssignPcs();
         return;
       }
-      store.set(`pc${this.i}`, sel.value);
+      this.cfg.pc = sel.value; saveStations();
       this.renderAssigned(); renderCamJump();
     };
-    this.q(".cam").onchange = () => store.set(`cam${this.i}`, this.q(".cam").value);
+    this.q(".cam").onchange = () => { this.cfg.cam = this.q(".cam").value; saveStations(); };
     this.q(".rm").onclick = async () => {
       if (stations.length < 2) return;   // keep at least one camera panel
       const pc = this.q(".pc").value;
       if (this.on) this.stop(); else fetch(`/api/pcs/${encodeURIComponent(pc)}/stopped`, {method: "POST"}).catch(() => {});
-      // a PC made just for this camera (no students assigned, no other camera on it) goes away with it
-      if (state && pc in state.assignments && !state.assignments[pc].length && !stations.some(o => o !== this && o.q(".pc").value === pc))
-        fetch("/api/pcs/" + encodeURIComponent(pc), {method: "DELETE"}).then(() => poll(true)).catch(() => {});
       el.remove(); stations.splice(stations.indexOf(this), 1);
-      store.set("stations", String(stations.length)); renderCamJump();
+      saveStations(); renderCamJump();
+      // a PC made just for this camera (no students assigned, no other camera on it) goes away with it
+      if (state && pc in state.assignments && !state.assignments[pc].length && !stations.some(o => o.q(".pc").value === pc))
+        await fetch("/api/pcs/" + encodeURIComponent(pc), {method: "DELETE"}).catch(() => {});
+      await poll(true);
+      await compactPcs();   // the cameras left are renumbered: Camera 1 = PC-01, Camera 2 = PC-02, ...
     };
     this.q(".minb").onclick = () => this.setMin(!el.classList.contains("min"));
     this.q(".maxb").onclick = () => this.setMax(!el.classList.contains("max"));
@@ -849,14 +853,14 @@ class Station {
       : this.q(".stage").requestFullscreen && this.q(".stage").requestFullscreen();   // double-click: full screen
     $("#stations").appendChild(el);
     this.fillPcs(); this.fillCams();
-    this.setMin(store.get(`min${this.i}`) === "1");
+    this.setMin(this.cfg.min, true);
   }
 
   /* Minimize: fold to one line (still detecting). Maximize: whole row, first in the list. */
-  setMin(on) {
+  setMin(on, loading) {
     this.el.classList.toggle("min", on);
     if (on) this.el.classList.remove("max");
-    store.set(`min${this.i}`, on ? "1" : "0");
+    this.cfg.min = on; if (!loading) saveStations();
     this.syncButtons(); renderCamJump();
   }
   setMax(on) {
@@ -886,7 +890,7 @@ class Station {
 
   fillPcs(force) {
     const sel = this.q(".pc"), opts = pcOptions();
-    let cur = force || (sel.value !== "__new__" && sel.value) || store.get(`pc${this.i}`) || opts[this.i] || opts[0];
+    let cur = force || (sel.value !== "__new__" && sel.value) || this.cfg.pc || opts[0];
     if (!opts.includes(cur)) opts.push(cur);
     const html = opts.sort().map(pc => `<option ${pc === cur ? "selected" : ""}>${esc(pc)}</option>`).join("")
       + `<option value="__new__">+ New PC…</option>`;
@@ -903,12 +907,12 @@ class Station {
   }
 
   fillCams() {
-    const sel = this.q(".cam"), want = sel.value || store.get(`cam${this.i}`);
+    const sel = this.q(".cam"), want = sel.value || this.cfg.cam;
     if (!cameras.length) return;
     sel.innerHTML = cameras.map((c, k) => `<option value="${esc(c.deviceId)}">${esc(c.label || "Camera " + (k + 1))}</option>`).join("");
     const taken = stations.filter(s => s !== this && s.on).map(s => s.q(".cam").value);
     const pick = (want && cameras.some(c => c.deviceId === want)) ? want
-      : (cameras.find(c => !taken.includes(c.deviceId) && (this.i === 0 ? /iriun/i.test(c.label) : true))
+      : (cameras.find(c => !taken.includes(c.deviceId) && (stations.indexOf(this) <= 0 ? /iriun/i.test(c.label) : true))
          || cameras.find(c => !taken.includes(c.deviceId)) || cameras[0]).deviceId;
     sel.value = pick;
   }
@@ -922,7 +926,7 @@ class Station {
     if (pcName && pcName !== "__new__") await createPc(pcName);   // starting a camera (re)creates its PC
     const id = this.q(".cam").value;
     const clash = stations.find(s => s !== this && s.on && s.q(".cam").value === id);
-    if (clash) { idle.textContent = `That camera is already used by Camera ${clash.i + 1}. Pick a different one.`; return; }
+    if (clash) { idle.textContent = `That camera is already used by Camera ${stations.indexOf(clash) + 1}. Pick a different one.`; return; }
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({video: {deviceId: id ? {exact: id} : undefined,
         width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 30}}});
@@ -934,12 +938,12 @@ class Station {
     idle.style.display = "none";
     this.on = true; this.last = null;
     this.q(".go").textContent = "Stop camera";
-    store.set(`run${this.i}`, "1");   // a reload (app update) starts it again
+    this.cfg.run = true; saveStations();   // a reload (app update) starts it again
     if (this.setState) this.setState("live", "Live", "Starting…");
     await listCams();
     const dev = this.stream.getVideoTracks()[0].getSettings().deviceId;
-    if (dev) { this.q(".cam").value = dev; store.set(`cam${this.i}`, dev); }
-    store.set(`pc${this.i}`, this.q(".pc").value);
+    if (dev) { this.q(".cam").value = dev; this.cfg.cam = dev; }
+    this.cfg.pc = this.q(".pc").value; saveStations();
     this.detectLoop();
     requestAnimationFrame(() => this.paint());
   }
@@ -951,7 +955,7 @@ class Station {
     this.q(".go").textContent = "Start camera";
     const idle = this.q(".idle"); idle.style.display = "flex"; idle.textContent = "Camera stopped.";
     if (this.setState) {
-      this.setState("off", "Off", "Camera off"); store.set(`run${this.i}`, "0");
+      this.setState("off", "Off", "Camera off"); this.cfg.run = false; saveStations();
       const pc = this.q(".pc").value;   // the dashboard shows this PC offline right away
       if (pc && pc !== "__new__") fetch(`/api/pcs/${encodeURIComponent(pc)}/stopped`, {method: "POST"}).catch(() => {});
     }
@@ -1106,11 +1110,43 @@ async function autoAssignPcs() {
       if (!pc || pc === "__new__" || used.has(pc)) {
         pc = pcOptions().find(p => !used.has(p) && !stations.some(o => o !== s && o.q(".pc").value === p));
         if (!pc) { pc = nextPcName(); await createPc(pc); }
-        s.fillPcs(pc); store.set(`pc${s.i}`, pc);
+        s.fillPcs(pc); s.cfg.pc = pc; saveStations();
       }
       used.add(pc);
     }
   } finally { autoPcBusy = false; renderCamJump(); }
+}
+
+/* After cameras are removed, the ones left are renumbered so the names follow the panels again:
+   Camera 1 = PC-01, Camera 2 = PC-02, ... Only PCs named PC-<number> that have NO students assigned are
+   renamed (an empty PC made for a camera); PCs with students and custom names (LAB-A) never change. */
+async function compactPcs() {
+  if (!state) return;
+  for (let k = 0; k < stations.length; k++) {
+    const st = stations[k], pc = st.q(".pc").value, want = "PC-" + String(k + 1).padStart(2, "0");
+    if (pc === want || !/^PC-\d+$/.test(pc) || (state.assignments[pc] || []).length) continue;
+    if (stations.some(o => o.q(".pc").value === want)) continue;            // another camera has that name
+    if (want in state.assignments && state.assignments[want].length) continue;   // a real PC with students
+    await createPc(want);
+    st.fillPcs(want); st.cfg.pc = want; saveStations();
+    if (pc in state.assignments && !stations.some(o => o.q(".pc").value === pc))
+      await fetch("/api/pcs/" + encodeURIComponent(pc), {method: "DELETE"}).catch(() => {});
+    await poll(true);
+  }
+  renderCamJump();
+}
+
+/* The camera panels (PC, webcam, minimized, running), saved in this browser in panel order */
+function saveStations() {
+  store.set("cameras", JSON.stringify(stations.map(s => ({pc: s.q(".pc").value === "__new__" ? s.cfg.pc : (s.q(".pc").value || s.cfg.pc),
+    cam: s.cfg.cam, min: s.cfg.min, run: s.cfg.run}))));
+}
+function loadStations() {
+  try { const a = JSON.parse(store.get("cameras") || "null"); if (Array.isArray(a) && a.length) return a.slice(0, 64); } catch (e) {}
+  // older versions saved pc0, cam0, min0, run0 ... by number
+  const n = Math.max(1, Math.min(64, +store.get("stations") || 1)), out = [];
+  for (let k = 0; k < n; k++) out.push({pc: store.get(`pc${k}`), cam: store.get(`cam${k}`), min: store.get(`min${k}`) === "1", run: store.get(`run${k}`) === "1"});
+  return out;
 }
 
 /* Toolbar: cameras per row, minimize/expand all, and a strip of chips to jump to any camera */
@@ -1129,12 +1165,13 @@ function renderCamJump() {   // batched: cameras update their state every frame
     jumpQueued = false;
     const dot = {alert: "var(--bad)", warn: "var(--warn)", live: "var(--ok)"};
     const html = stations.length > 1 ? stations.map(s => `<button class="chip" data-j="${s.i}" title="${esc(s.q(".mini").textContent)}">` +
-      `<span class="dot" style="background:${dot[s.status] || "var(--muted)"}"></span>${esc(s.q(".pc").value || "Camera " + (s.i + 1))}` +
+      `<span class="dot" style="background:${dot[s.status] || "var(--muted)"}"></span>${esc(s.q(".pc").value || "Camera " + (stations.indexOf(s) + 1))}` +
       `${s.el.classList.contains("min") ? ` <span class="n">min</span>` : ""}</button>`).join("") : "";
     if ($("#cam-jump").innerHTML !== html) $("#cam-jump").innerHTML = html;
     const count = {};
     stations.forEach(s => { const pc = s.q(".pc").value; count[pc] = (count[pc] || 0) + 1; });
-    stations.forEach(s => {
+    stations.forEach((s, k) => {
+      s.q(".camno").textContent = `Camera ${k + 1}`;
       s.q(".rm").disabled = stations.length < 2;
       s.q(".rm").title = stations.length < 2 ? "The last camera can't be removed" : "Remove this camera";
       const pc = s.q(".pc").value, el = s.q(".pcname"), dup = count[pc] > 1;
@@ -1153,22 +1190,30 @@ $("#cam-jump").addEventListener("click", e => {
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape") stations.forEach(s => s.el.classList.contains("max") && s.setMax(false)); });
 setCamCols(store.get("camCols") || "auto");
-function addStation() {
-  const next = stations.length ? Math.max(...stations.map(s => s.i)) + 1 : 0;
-  const st = new Station(next);
+let nextStationId = 0;
+function addStation(cfg, loading) {
+  const st = new Station(nextStationId++, cfg);
   stations.push(st);
-  store.set("stations", String(stations.length));
+  if (!loading) saveStations();
+  renderCamJump();
   return st;
 }
+/* The Cameras page open in two tabs: a camera added/removed in one shows in the other (unless this tab is
+   running cameras right now, then it keeps them as they are). */
+window.addEventListener("storage", e => {
+  if (e.key !== "cameras" || stations.some(s => s.on)) return;
+  stations.splice(0).forEach(s => s.el.remove());
+  loadStations().forEach(cfg => addStation(cfg, true));
+});
 /* "+ Add another camera": the new camera gets a PC no other panel is using (creating PC-0N if needed). */
 $("#add-station").onclick = async () => {
   const used = new Set(stations.map(s => s.q(".pc").value));
   let pc = pcOptions().find(p => !used.has(p));
   if (!pc) { pc = nextPcName(); await createPc(pc); }
   const st = addStation();
-  st.fillPcs(pc); store.set(`pc${st.i}`, pc); renderCamJump();
+  st.fillPcs(pc); st.cfg.pc = pc; saveStations(); renderCamJump();
 };
-for (let k = 0, n = Math.max(1, Math.min(64, +store.get("stations") || 1)); k < n; k++) addStation();
+loadStations().forEach(cfg => addStation(cfg, true));
 renderCamJump();
 if (navigator.mediaDevices) navigator.mediaDevices.addEventListener("devicechange", listCams);
 
@@ -1200,7 +1245,7 @@ class Cctv {
     }
     const id = this.q(".cam").value;
     const clash = stations.find(s => s.on && s.q(".cam").value === id);
-    if (clash) { idle.textContent = `That camera is used by PC camera ${clash.i + 1}. Stop it there or pick another.`; return; }
+    if (clash) { idle.textContent = `That camera is used by PC camera ${stations.indexOf(clash) + 1}. Stop it there or pick another.`; return; }
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({video: {deviceId: id ? {exact: id} : undefined,
         width: {ideal: 1920}, height: {ideal: 1080}}});
@@ -1465,7 +1510,7 @@ function checkReset(s) {
   const seen = store.get("reset_id");
   if (seen === null || seen === s.reset_id) { store.set("reset_id", s.reset_id); return false; }
   try {
-    Object.keys(localStorage).filter(k => /^(pc|cam|min|run)\d+$/.test(k) || ["stations", "cctv-name", "cctv-cam", "cctv-run", "pcFilter", "camCols"].includes(k))
+    Object.keys(localStorage).filter(k => /^(pc|cam|min|run)\d+$/.test(k) || ["stations", "cameras", "cctv-name", "cctv-cam", "cctv-run", "pcFilter", "camCols"].includes(k))
       .forEach(k => localStorage.removeItem(k));
   } catch (e) {}
   store.set("reset_id", s.reset_id);
@@ -1488,7 +1533,7 @@ function liveUpdates(s) {
     if (!knownPcs.has(pc) || now.has(pc)) return;
     if (st.on) st.stop();
     const free = [...now].sort().find(p => !stations.some(o => o.q(".pc").value === p));
-    if (free) { st.fillPcs(free); store.set(`pc${st.i}`, free); }
+    if (free) { st.fillPcs(free); st.cfg.pc = free; saveStations(); }
     st.q(".idle").textContent = `${pc} was deleted.` + (free ? ` This camera is now ${free}; start it again if you need it.` : " Choose a PC for this camera.");
   });
   knownPcs = now;
@@ -1543,7 +1588,7 @@ async function poll(once) {
 showPage();
 poll();
 listCams().then(() => {   // cameras that were running before a reload start again (camera permission is remembered)
-  stations.forEach(st => store.get(`run${st.i}`) === "1" && !st.on && st.start());
+  stations.forEach(st => st.cfg.run && !st.on && st.start());
   if (store.get("cctv-run") === "1" && !cctv.on) cctv.start();
 });
 
