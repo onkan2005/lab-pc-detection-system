@@ -42,6 +42,7 @@ from ultralytics import YOLO
 VIDEO_EXT = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".mpg", ".mpeg", ".m4v", ".wmv"}
 
 PC_NAME = re.compile(r"^[A-Za-z0-9_-]{1,20}$")
+BUILD = str(int(time.time()))   # new on every start / rebuild: open pages then reload themselves
 
 
 class NoRecognizer:
@@ -77,7 +78,8 @@ class Engine:
         self.lock = threading.Lock()           # one frame at a time through the models
         self.t0 = time.monotonic()
         self.reset_mark = marker_time()        # reset.py touches this; then all memory below is cleared
-        self.load_data()
+        self.version = 0                       # +1 on every change to PCs, students, watchlist, incidents:
+        self.load_data()                       #   open pages then reload the lists they show
         self.photo_yolo = None                 # YOLO26 for "Check a photo" (loaded on first use)
         self.video_face_app = None             # separate face models for video tests (loaded on first use)
         self.next_cleanup = 0.0
@@ -110,6 +112,7 @@ class Engine:
             self.reset_mark = mark
             self.tracker.usage.open.clear()      # visits from before the reset are not logged
             self.load_data()
+            self.version += 1
             print("Data was reset: cleared the feed, timers and visits in memory and reloaded the data folder.")
 
     def cleanup(self):
@@ -132,6 +135,8 @@ class Engine:
         """Runs detection + rules for one frame from one PC's camera. Returns what to draw."""
         self.check_reset()
         with self.lock:
+            if pc not in self.assignments:   # deleted (or never created): don't bring it back
+                return None
             self.cleanup()
             t = self.now()
             started = time.monotonic()
@@ -337,7 +342,7 @@ def state():
     t, tr = engine.now(), engine.tracker
     return jsonify({
         "clock": tr.stamp(t), "pcs": engine.overview(), "assignments": engine.assignments,
-        "reset_id": str(engine.reset_mark or ""),   # changes when reset.py runs: the page then forgets its cameras
+        "reset_id": str(engine.reset_mark or ""), "build": BUILD, "version": engine.version,   # changes when reset.py runs: the page then forgets its cameras
         "people": sorted(set(engine.recognizer.names)), "watchlist": engine.watchlist,
         "enroll_pending": enrollment_changes(engine.last_report),
         "incidents": engine.incidents.recent(), "open_incidents": engine.incidents.open_count(),
@@ -370,7 +375,11 @@ def frame_in():
     frame = cv2.imdecode(np.frombuffer(request.get_data(), np.uint8), cv2.IMREAD_COLOR)
     if frame is None:
         return jsonify({"error": "bad frame"}), 400
-    return jsonify(engine.process(pc, frame))
+    out = engine.process(pc, frame)
+    if out is None:
+        return jsonify({"error": f"{pc} does not exist any more (it was deleted). Choose a PC for this camera.",
+                        "missing_pc": pc}), 404
+    return jsonify(out)
 
 
 @app.route("/api/cctv/frame", methods=["POST"])
@@ -614,6 +623,7 @@ def run_enroll():
         for st in [*engine.stations.values(), *engine.cctv.values()]:
             st["cam"]["gallery"] = Gallery()   # recognize everyone again with the new photos
     engine.last_report = report
+    engine.version += 1
     return jsonify({"report": report, "embeddings": len(engine.recognizer.names)})
 
 
@@ -637,6 +647,7 @@ def snapshot(name):
 @app.route("/api/incidents/<iid>", methods=["POST"])
 def incident_status(iid):
     item = engine.incidents.set_status(iid, (request.get_json() or {}).get("status"))
+    engine.version += 1
     return jsonify(item) if item else (jsonify({"error": "not found"}), 404)
 
 
@@ -648,6 +659,7 @@ def save_watchlist():
         engine.watchlist = names
         engine.tracker.watchlist = set(names)
         engine.room.watchlist = set(names)
+        engine.version += 1
     return jsonify({"ok": True, "watchlist": names})
 
 
@@ -656,6 +668,7 @@ def apply_assignments(data):
     with engine.lock:
         engine.assignments = data
         engine.tracker.set_assignments(data, engine.now())
+        engine.version += 1
 
 
 @app.route("/api/pcs/<pc>", methods=["POST"])
@@ -675,7 +688,11 @@ def delete_pc(pc):
     data = {k: v for k, v in engine.assignments.items() if k != pc}
     apply_assignments(data)
     with engine.lock:
-        engine.stations.pop(pc, None)
+        engine.stations.pop(pc, None)          # its last picture and tracker: gone from the dashboard
+        tr = engine.tracker
+        for d in (tr.covered_since, tr.last_frame, tr.crowd_since):
+            d.pop(pc, None)
+        tr.presence = {k: v for k, v in tr.presence.items() if k[0] != pc}
     return jsonify({"ok": True})
 
 

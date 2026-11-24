@@ -660,6 +660,8 @@
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmt = s => s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+const hms = sec => { sec = Math.max(0, Math.round(+sec || 0)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; };
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
@@ -716,6 +718,7 @@ async function savePc(pc, names) {
   await poll(true);
 }
 async function createPc(pc) {
+  if (!state) await poll(true);
   if (state && pc in state.assignments) return;
   await savePc(pc, []);
 }
@@ -910,6 +913,8 @@ class Station {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       idle.textContent = "The browser blocks the camera on this address. Open http://localhost:8765 instead."; return;
     }
+    const pcName = this.q(".pc").value;
+    if (pcName && pcName !== "__new__") await createPc(pcName);   // starting a camera (re)creates its PC
     const id = this.q(".cam").value;
     const clash = stations.find(s => s !== this && s.on && s.q(".cam").value === id);
     if (clash) { idle.textContent = `That camera is already used by Camera ${clash.i + 1}. Pick a different one.`; return; }
@@ -924,6 +929,7 @@ class Station {
     idle.style.display = "none";
     this.on = true; this.last = null;
     this.q(".go").textContent = "Stop camera";
+    store.set(`run${this.i}`, "1");   // a reload (app update) starts it again
     if (this.setState) this.setState("live", "Live", "Starting…");
     await listCams();
     const dev = this.stream.getVideoTracks()[0].getSettings().deviceId;
@@ -939,7 +945,7 @@ class Station {
     this.stream = null; this.last = null;
     this.q(".go").textContent = "Start camera";
     const idle = this.q(".idle"); idle.style.display = "flex"; idle.textContent = "Camera stopped.";
-    if (this.setState) this.setState("off", "Off", "Camera off");
+    if (this.setState) { this.setState("off", "Off", "Camera off"); store.set(`run${this.i}`, "0"); }
     this.overlay.getContext("2d").clearRect(0, 0, this.overlay.width, this.overlay.height);
   }
 
@@ -957,6 +963,7 @@ class Station {
         const res = await fetch("/api/frame?pc=" + encodeURIComponent(this.q(".pc").value),
           {method: "POST", body: blob, headers: {"Content-Type": "image/jpeg"}});
         const data = await res.json();
+        if (data.missing_pc) { this.stop(); this.q(".idle").textContent = data.error; this.q(".perf").textContent = data.error; break; }
         if (!res.ok) { this.q(".perf").textContent = data.error || "Server error"; await sleep(1000); continue; }
         if (!this.on) break;
         this.last = data; this.sentW = w; this.sentH = h;
@@ -1195,11 +1202,11 @@ class Cctv {
     idle.style.display = "none";
     this.on = true; this.last = null;
     this.q(".go").textContent = "Stop CCTV";
-    store.set("cctv-name", this.name);
+    store.set("cctv-name", this.name); store.set("cctv-run", "1");
     this.detectLoop();
     requestAnimationFrame(() => this.paint());
   }
-  stop() { Station.prototype.stop.call(this); this.q(".go").textContent = "Start CCTV"; }
+  stop() { Station.prototype.stop.call(this); this.q(".go").textContent = "Start CCTV"; store.set("cctv-run", "0"); }
   paint() { Station.prototype.paint.call(this); }
   async detectLoop() {
     let n = 0, since = performance.now();
@@ -1259,10 +1266,10 @@ async function pollCctv() {
     $("#room-now").innerHTML = table(d.in_room, [
       ["Student", r => esc(r.name) + (r.watchlist ? ` <span class="badge b-bad">watchlist</span>` : "")],
       ["Camera", r => esc(r.camera)], ["Entered", r => esc(r.entered.slice(11))],
-      ["In room", r => `${r.minutes} min`], ["Last seen", r => r.last_seen < 3 ? "now" : `${fmt(r.last_seen)} ago`]]);
+      ["In room", r => `<span class="dur">${hms(r.minutes * 60)}</span>`], ["Last seen", r => r.last_seen < 3 ? "now" : `${fmt(r.last_seen)} ago`]]);
     $("#room-log").innerHTML = table(d.log, [
       ["Student", r => esc(r.name)], ["Camera", r => esc(r.camera)],
-      ["Entered", r => esc(r.entered)], ["Left", r => esc(r.left.slice(11))], ["Minutes", r => esc(r.minutes)]]);
+      ["Entered", r => esc(r.entered)], ["Left", r => esc(r.left.slice(11))], ["Time in room", r => `<span class="dur">${hms(r.minutes * 60)}</span>`]]);
   } catch (e) {}
   setTimeout(pollCctv, 2000);
 }
@@ -1450,7 +1457,7 @@ function checkReset(s) {
   const seen = store.get("reset_id");
   if (seen === null || seen === s.reset_id) { store.set("reset_id", s.reset_id); return false; }
   try {
-    Object.keys(localStorage).filter(k => /^(pc|cam|min)\d+$/.test(k) || ["stations", "cctv-name", "cctv-cam", "pcFilter", "camCols"].includes(k))
+    Object.keys(localStorage).filter(k => /^(pc|cam|min|run)\d+$/.test(k) || ["stations", "cctv-name", "cctv-cam", "cctv-run", "pcFilter", "camCols"].includes(k))
       .forEach(k => localStorage.removeItem(k));
   } catch (e) {}
   store.set("reset_id", s.reset_id);
@@ -1459,8 +1466,37 @@ function checkReset(s) {
   return true;
 }
 
+/* Live updates without pressing refresh:
+   - the app was updated or restarted (new build id): reload the page; running cameras start again by themselves
+   - something changed (PCs, students, watchlist, incidents; version +1): reload the lists of the open page
+   - a PC was deleted: camera panels on it stop and move to a free PC (they don't bring it back) */
+let lastBuild = null, lastVersion = null, knownPcs = null;
+function liveUpdates(s) {
+  if (lastBuild !== null && s.build !== lastBuild) { location.reload(); return true; }
+  lastBuild = s.build;
+  const now = new Set(Object.keys(s.assignments));
+  if (knownPcs) stations.forEach(st => {
+    const pc = st.q(".pc").value;
+    if (!knownPcs.has(pc) || now.has(pc)) return;
+    if (st.on) st.stop();
+    const free = [...now].sort().find(p => !stations.some(o => o.q(".pc").value === p));
+    if (free) { st.fillPcs(free); store.set(`pc${st.i}`, free); }
+    st.q(".idle").textContent = `${pc} was deleted.` + (free ? ` This camera is now ${free}; start it again if you need it.` : " Choose a PC for this camera.");
+  });
+  knownPcs = now;
+  if (lastVersion !== null && s.version !== lastVersion) {
+    const page = location.hash.slice(1);
+    if (page === "students") { loadEnrollment(); vtRecent(); }
+    if (page === "cctv") loadCctvTest();
+    if (page === "log") loadLog();
+  }
+  lastVersion = s.version;
+  return false;
+}
+
 function render(s) {
   if (checkReset(s)) return;
+  if (liveUpdates(s)) return;
   state = s;
   vtFillExpect();
   const online = s.pcs.filter(p => p.online).length;
@@ -1498,7 +1534,10 @@ async function poll(once) {
 }
 showPage();
 poll();
-listCams();
+listCams().then(() => {   // cameras that were running before a reload start again (camera permission is remembered)
+  stations.forEach(st => store.get(`run${st.i}`) === "1" && !st.on && st.start());
+  if (store.get("cctv-run") === "1" && !cctv.on) cctv.start();
+});
 
 /* ================= PHOTO TEST ================= */
 const PH_STEPS = [["preprocess", "Preprocessing (lessons 1-3)", "#a78bfa"], ["yolo", "YOLO26 people", "#3b82f6"],
@@ -1562,8 +1601,6 @@ async function testPhoto(file) {
 /* ================= VIDEO TEST: live view of the whole pipeline on a recorded video ================= */
 const VT_COLORS = {preprocess: "#a78bfa", yolo: "#3b82f6", reid: "#14b8a6", face_detect: "#f59e0b", liveness: "#ec4899", arcface: "#ef4444"};
 /* ---- Usage log page: every visit, in tabs by kind, with filters ---- */
-const hms = sec => { sec = Math.max(0, Math.round(+sec || 0)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
-  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`; };
 const LOG_TABS = [
   ["use", "PC use", "a student in the PC's seat (counted usage)", r => r.role === "user" && !UNNAMED_LOG.includes(r.name)],
   ["unknown", "Unknown at a PC", "someone not enrolled, or whose face was never seen, in a PC's seat", r => r.role === "user" && UNNAMED_LOG.includes(r.name)],
@@ -1591,7 +1628,7 @@ async function loadLog() {
       (logData.retention_days ? `Kept for ${logData.retention_days} days.` : "");
     renderLog();
   }
-  if (location.hash === "#log") logTimer = setTimeout(loadLog, 5000);
+  if (location.hash === "#log") logTimer = setTimeout(loadLog, 3000);
 }
 function logRows() {
   const f = id => $(id).value;

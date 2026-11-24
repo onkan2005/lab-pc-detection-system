@@ -198,6 +198,11 @@ while the app is stopped (or restart it afterwards: `docker compose restart`).
 
 Rail buttons: alarm sound on/off, light/dark mode.
 
+No refreshing needed: every page updates itself. Changes to PCs, students, the watchlist or incidents show on
+all open pages within a second; after an app update or restart the page reloads by itself and cameras that
+were running start again. Deleting a PC removes it from the dashboard at once; a camera panel that was on it
+stops and moves to a free PC instead of bringing the deleted PC back.
+
 **Usage log.** One row per person per visit, for everyone a PC camera sees, sorted into tabs:
 **PC use** (a student in the PC's seat: the counted usage), **Unknown at a PC** (not enrolled, or face never
 seen), **Bystanders** (next to or behind the user) and **Photo / phone** (a face shown on a device). Each row
