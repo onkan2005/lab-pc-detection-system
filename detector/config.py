@@ -75,6 +75,15 @@ CCTV_DETECT_WIDTH = 1280
 CCTV_YOLO_IMGSZ = 960
 CCTV_FACE_DET_SIZE = 960             # whole-frame face detector size (evaluate_cctv.py)
 CCTV_MIN_FACE_PX = 24             # smaller faces are not recognized reliably (see evaluate_cctv.py)
+# Multi-frame face fusion (fusion.py): YOLO26's tracker says which faces in consecutive frames belong to the
+# same person, so their ArcFace embeddings are averaged (weighted by face size and detector confidence) and the
+# AVERAGE is matched. Noise from tiny / blurry faces cancels out; the threshold stays MATCH_THRESHOLD.
+FUSION = True
+FUSE_FRAMES = 20                  # use the last N face samples of a person ...
+FUSE_SEC = 10                     # ... from the last N seconds
+FUSE_MIN = 3                      # at least this many samples before the average may name someone
+FUSE_MIN_FACE_PX = 16             # CCTV: faces from 16 px are collected for the average (a single face needs 24 px)
+FUSE_CONSISTENT = 0.20            # a new sample this unlike the average = a different face (tracker swap): start over
 CCTV_UNKNOWN_SEC = 30             # an unknown person in the room this long -> incident
 UNKNOWN_CONTINUE_SEC = 5          # an unknown person who reappears as "new" within this keeps their timer
 CCTV_LOG_GAP = 60                 # not seen for this long = left the room (written to the room log)

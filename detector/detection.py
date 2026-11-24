@@ -23,6 +23,7 @@ from insightface.app.common import Face
 from ultralytics import YOLO
 
 import config
+import fusion
 import liveness
 from preprocess import detail, enhance, stats
 from reid import Gallery, signature
@@ -38,6 +39,7 @@ PC_PROFILE = {"width": config.DETECT_WIDTH, "yolo": config.YOLO_IMGSZ,
 CCTV_PROFILE = {"width": config.CCTV_DETECT_WIDTH, "yolo": config.CCTV_YOLO_IMGSZ,
                 # the face detector runs on each person's crop, enlarged to 640 px so small faces are found
                 "face": 640, "min_face": config.CCTV_MIN_FACE_PX,
+                "fuse_min_face": config.FUSE_MIN_FACE_PX,   # smaller faces only feed the multi-frame average
                 "tracker": str(config.BASE_DIR / "tracker_cctv.yaml")}
 
 
@@ -159,12 +161,15 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
         spent("reid", t0)
         # 4. face inside this person's box (cheap) -> recognize only when needed (ArcFace is the slow part)
         t0 = clock()
-        face = find_face(small, box, face_app, prof["face"], prof["min_face"])
+        fuse_min = min(prof["min_face"], prof.get("fuse_min_face", prof["min_face"])) if config.FUSION else prof["min_face"]
+        face = find_face(small, box, face_app, prof["face"], fuse_min)
         spent("face_detect", t0)
+        face_px = float(face.bbox[2] - face.bbox[0]) if face is not None else 0.0
+        tiny = face is not None and face_px < prof["min_face"]   # too small to name alone: only for the average
         checked = None
         # liveness: a face shown on a phone/screen is never given a name; blinks are counted (PC cameras)
-        spoof = liveness.on_device(face.bbox, box, devices) if face is not None and devices else None
-        if face is not None and spoof is None and config.LIVENESS and prof.get("blink"):
+        spoof = liveness.on_device(face.bbox, box, devices) if face is not None and not tiny and devices else None
+        if face is not None and not tiny and spoof is None and config.LIVENESS and prof.get("blink"):
             t0 = clock()
             liveness.update(person, face_app, small, face, now)
             spent("liveness", t0)
@@ -176,14 +181,41 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
             t_ms["arcface_runs"] = t_ms.get("arcface_runs", 0) + 1
             checked = {"name": str(name), "score": round(float(score), 3)}
             person["spoof"] = {"device": spoof, "of": str(name), "at": now}
-        elif face is not None and (person["name"] in (None, "unknown") or now - person["at"] >= config.RECOGNIZE_EVERY):
+        elif face is not None and tiny and person["name"] in (None, "unknown"):
+            # a face too small to trust alone: only add it to this person's multi-frame average
+            t0 = clock()
+            face_app.models["recognition"].get(small, face)
+            fused, n = fusion.add(person, face.normed_embedding, fusion.weight(face.det_score, face_px), now)
+            spent("arcface", t0)
+            t_ms["arcface_runs"] = t_ms.get("arcface_runs", 0) + 1
+            if n >= config.FUSE_MIN:
+                name, score = recognizer.identify(fused)
+                checked = {"name": str(name), "score": round(float(score), 3), "fused": n}
+                if str(name) != "unknown":
+                    person.update(name=str(name), score=float(score), at=now, reid=False, fused=n)
+                    fusion.forget(person)
+        elif face is not None and not tiny and (person["name"] in (None, "unknown") or now - person["at"] >= config.RECOGNIZE_EVERY):
             t0 = clock()
             face_app.models["recognition"].get(small, face)
             name, score = recognizer.identify(face.normed_embedding)
+            if str(name) != "unknown":
+                person.pop("fused", None)   # named by this one face
+            if config.FUSION and person["name"] in (None, "unknown") and str(name) == "unknown":
+                # one frame is not enough: try the average of this person's last frames (same threshold)
+                fused, n = fusion.add(person, face.normed_embedding, fusion.weight(face.det_score, face_px), now)
+                if n >= config.FUSE_MIN:
+                    fname, fscore = recognizer.identify(fused)
+                    if str(fname) != "unknown":
+                        name, score = fname, fscore
+                        person["fused"] = n
             spent("arcface", t0)
             t_ms["arcface_runs"] = t_ms.get("arcface_runs", 0) + 1
             name = str(name)
             checked = {"name": name, "score": round(float(score), 3)}   # this frame's ArcFace answer
+            if person.get("fused"):
+                checked["fused"] = person["fused"]
+            if name != "unknown":
+                fusion.forget(person)
             known = person["name"] not in (None, "unknown")
             clear = sharpness(small, face.bbox) >= config.FACE_SHARPNESS_MIN
             if known and name == "unknown" and not clear:
@@ -211,6 +243,7 @@ def analyze(frame, cam, face_app, recognizer, now=None, timings=None):
             "conf": round(confs[k], 2),          # YOLO26 confidence that this box is a person
             "face_score": round(float(face.det_score), 2) if face is not None else None,   # SCRFD confidence
             "checked": checked,
+            "fused": person.get("fused"),        # named from the average of this many frames (multi-frame fusion)
             "spoof": spoofing and {"device": spoofing["device"], "of": spoofing["of"]},   # face shown on a phone/screen
             "liveness": liveness.state_of(person) if prof.get("blink") else None,
             "hint": hint,

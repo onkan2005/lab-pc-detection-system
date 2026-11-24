@@ -179,6 +179,7 @@ class RoomTracker:
                 seconds = round(t - v["first"]) if v else 0
                 who = name
                 how = (f"kept by {p.get('clothes', '')} clothes" if p.get("reid")
+                       else f"face (average of {p['fused']} frames)" if p.get("fused")
                        else "face" if p.get("face_box") else "kept by tracking (face not visible now)")
                 if name in self.watchlist:
                     kind, label = "alert", f"WATCHLIST: {name}"

@@ -1996,7 +1996,7 @@ function vtRender(id, d) {
         <td><b style="color:${q.kind === "ok" ? "var(--ok)" : q.kind === "alert" ? "var(--bad)" : "inherit"}">${esc(q.label)}</b><br><span class="muted">${esc(q.how)}</span></td>
         <td>${q.conf != null ? `conf ${q.conf.toFixed(2)}` : "–"}</td>
         <td>${q.face_px ? `${q.face_px} px<br><span class="muted">score ${q.face_score}</span>` : `<span class="muted">not found</span>`}</td>
-        <td>${q.checked ? `<span class="${q.checked.score >= th ? "ok" : "no"}">${q.checked.score.toFixed(2)} ${q.checked.score >= th ? "≥" : "<"} ${th}</span><br><span class="muted">→ ${esc(q.checked.name)}</span>`
+        <td>${q.checked ? `<span class="${q.checked.score >= th ? "ok" : "no"}">${q.checked.score.toFixed(2)} ${q.checked.score >= th ? "≥" : "<"} ${th}</span><br><span class="muted">→ ${esc(q.checked.name)}${q.checked.fused ? ` (average of ${q.checked.fused} frames)` : ""}</span>`
               : q.name !== "unidentified" && q.name !== "unknown" ? `<span class="muted">kept ${q.score.toFixed(2)}</span>` : `<span class="muted">–</span>`}</td>
         <td>${q.reid && q.reid_sim != null ? `${q.reid_sim.toFixed(2)} ≥ 0.70<br><span class="muted">${esc(q.clothes || "")} clothes</span>` : `<span class="muted">${esc(q.clothes || "")}</span>`}</td>
         <td>${vtLive(q)}</td>

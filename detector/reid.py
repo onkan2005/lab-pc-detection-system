@@ -166,6 +166,7 @@ class Gallery:
         if best is not None:
             best["sig"], best["reid"], best["reid_sim"] = blend(best["sig"], sig), True, round(best_s, 2)
             best["box"] = box
+            best.pop("face_buf", None)   # joined by clothes, not by tracking: don't mix face samples (fusion.py)
             if track_id is not None:
                 self.tracks[track_id] = best["pid"]
             return best
@@ -209,6 +210,7 @@ class Gallery:
         if best is None:
             return None
         del self.people[p["pid"]]
+        best.pop("face_buf", None)
         best["sig"], best["reid"], best["reid_sim"] = blend(best["sig"], sig), True, round(best_s, 2)
         best["box"] = p.get("box")
         return best

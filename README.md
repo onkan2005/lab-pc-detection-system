@@ -16,6 +16,7 @@ Final project for ICE 415 – Digital Image Processing.
 - [Enroll students](#enroll-students)
 - [Reset the data (keep the photos)](#reset-the-data-keep-the-photos)
 - [Same person, not a new one (re-identification)](#same-person-not-a-new-one-re-identification)
+- [Far-away faces: many frames instead of one](#far-away-faces-many-frames-instead-of-one)
 - [Photo or real face? (liveness)](#photo-or-real-face-liveness)
 - [How accurate is it?](#how-accurate-is-it)
 - [Using the app](#using-the-app)
@@ -340,6 +341,7 @@ after changing them):
 | `REID_MIN_SIM`, `REID_SPLIT_SIM` | 0.70, 0.25 | appearance similarity to call it the same person / a different person on the same track |
 | `REID_MARGIN` | 0.05 | two recent people match this closely: too close to call, wait for the face |
 | `LIVENESS`, `LIVENESS_SEC`, `SPOOF_SEC` | `True`, 20, 2 | blink check and phone/screen check; no blink for this long / face on a phone this long → alert |
+| `FUSION`, `FUSE_FRAMES`, `FUSE_MIN_FACE_PX` | `True`, 20, 16 | multi-frame face average: on/off, frames used, smallest face collected (CCTV) |
 | `HINT_SEC`, `HINT_SIM` | 180, 0.60 | cross-camera "maybe <name>?" hints: how recent, how similar the clothes |
 | `ROOM_NOTE_SEC` | 60 | an assigned student seen by another camera this recently → note on their empty PC |
 | `PRIVACY_BLUR` | `True` | pixelate faces in the camera wall, incident snapshots and live view |
@@ -413,6 +415,39 @@ do not jump when people walk past each other. On the EPFL 6-person lab video: hi
 Tested with two enrolled students: the tracker produced 4 different track IDs, re-identification
 merged them into the right 2 people and kept the names while faces were blurred. Thresholds are in
 `config.py` (`REID_*`, `FACE_SHARPNESS_MIN`); re-check them after the whole group is enrolled.
+
+---
+
+## Far-away faces: many frames instead of one
+
+On a CCTV camera a student's face is often only 16–30 pixels wide. One such frame is too noisy for ArcFace,
+but YOLO26's tracker knows that the faces in consecutive frames belong to the **same person**. `fusion.py`
+keeps the face embeddings of each tracked person (last 20 frames, 10 s), averages them (bigger and more
+confident faces count more) and matches the **average** with the same 0.45 threshold. The noise of single
+tiny frames cancels out. Faces from 16 px are collected for the average; one face alone still needs 24 px.
+
+Safety: the samples are only used while the person has no name yet, they are thrown away when re-ID joins a
+track to a person by clothes, and when a new sample looks like a different face (the tracker swapped people).
+
+Measured with `python evaluate_fusion.py` (every enrolled photo shrunk to 16–32 px and seen over 15 frames
+with movement, blur, noise and JPEG; matched against the *other* photos; strangers = that student removed):
+
+| Face size | Students named, one frame at a time (before) | With the multi-frame average | Strangers given a name (before / after) |
+|---|---|---|---|
+| 16 px | 0% | **17%** | 0 / 0 of 29 |
+| 20 px | 0% | **58%** | 0 / 0 of 29 |
+| 24 px | 68% (after 3.1 frames) | **72%** (after 2.0 frames) | 0 / 0 of 29 |
+| 28 px | 82% | 82% | 0 / 0 of 29 |
+| 32 px | 86% | 86% | 0 / 0 of 29 |
+
+No wrong names at any size, before or after. A student walking toward the camera (face growing from 14 to
+34 px over 12 s on a lab background) was named 1.6 s earlier (83% of frames named instead of 65%) when YOLO26
+found the person early. When YOLO26 found the person only once they were close, both versions were the same:
+without a YOLO26 person box there is no face to collect (see *How it works*).
+
+On the real test videos nothing got worse: faceocc2 (CCTV and PC) and CAVIAR gave exactly the same results.
+On the EPFL lab video (6 strangers, tiny faces) faces were now collected in 12.8% of person boxes instead of
+0.8%, and still **nobody was given a student's name**; identities and alerts were unchanged.
 
 ---
 
@@ -508,6 +543,8 @@ instead of being lowered to the edge. The page also shows the confusion matrix a
     ├── liveness.py                  photo/phone check: YOLO26 phones/screens + blink detection
     ├── sightings.py                 shared between cameras: hints and "student is in the room"
     ├── evaluate_accuracy.py         recall, false accepts, precision, confusion matrix per threshold
+    ├── fusion.py                    multi-frame face fusion (average of a tracked person's faces)
+    ├── evaluate_fusion.py           small faces: one frame vs the multi-frame average
     ├── preprocess.py                course lessons: brightness/contrast, negative, normalization, equalization
     ├── faces.py                     face detection + recognition (cosine similarity)
     ├── tracker.py                   alert rules (PC cameras)
