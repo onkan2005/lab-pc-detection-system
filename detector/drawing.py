@@ -42,7 +42,7 @@ def describe(pc, result, tracker, t):
                 label = f"Person{n} - maybe {hint['name']}? (clothes match, seen on {hint['camera']} {hint['ago']}s ago)"
         elif not p["user"] and name not in tracker.watchlist:
             label, kind = f"{who} (bystander)", "bystander"
-        elif p["user"] and lv and lv["state"] == "no_blink":
+        elif p["user"] and lv and lv["state"] == "no_blink" and name not in ("unknown", UNIDENTIFIED):
             fired = ("NO_BLINK", pc, name) in tracker.fired
             label, kind = f"{'ALERT: ' if fired else ''}{who} - no blink in {lv['seconds']}s (photo?)", "alert" if fired else "checking"
         elif st["state"] == "ok":

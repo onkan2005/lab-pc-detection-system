@@ -1557,7 +1557,8 @@ function renderIncidents(s) {
       : i.status === "resolved" ? `<span class="badge b-ok">Resolved</span>`
       : i.status === "false_alarm" ? `<span class="badge b-off">False alarm</span>` : "";
     return `<div class="incident ${i.status}">
-      <a href="/snapshots/${esc(i.scene)}" target="_blank" title="Open full camera view"><img src="/snapshots/${esc(img)}" alt="Evidence"></a>
+      ${img ? `<a href="/snapshots/${esc(i.scene || img)}" target="_blank" title="Open full camera view"><img src="/snapshots/${esc(img)}" alt="Evidence"></a>`
+            : `<div class="placeholder" style="width:72px;height:54px;border-radius:8px;background:var(--track)"></div>`}
       <div><div class="top"><span class="type" style="color:${i.status === "open" ? "var(--bad)" : "inherit"}">${TYPE_LABEL[i.type] || esc(i.type)}</span><time title="${esc(i.time)}">${esc(time)}</time></div>
         <div class="who">${person}${esc(i.pc)}</div>${badge}
         ${actions ? `<div class="actions">${actions}</div>` : ""}</div></div>`;

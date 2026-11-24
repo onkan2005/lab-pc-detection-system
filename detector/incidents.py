@@ -33,7 +33,7 @@ class Incidents:
                 return (p.get("spoof") or {}).get("of") == alert["name"]
             return (pid is not None and p["id"] == pid) or p["name"] == alert["name"]
         person = next((p for p in people if match(p)), None)
-        if person is not None:
+        if person is not None and raw_frame is not None:
             h, w = raw_frame.shape[:2]
             x1, y1, x2, y2 = person["face_box"] or person["box"]   # face if visible, else the YOLO person box
             pad = int((x2 - x1) * 0.5) if person["face_box"] else 0
@@ -41,8 +41,9 @@ class Incidents:
             if crop.size:
                 files["closeup"] = f"{iid}_closeup.jpg"
                 cv2.imwrite(str(config.SNAPSHOT_DIR / files["closeup"]), crop)
-        files["scene"] = f"{iid}_scene.jpg"
-        cv2.imwrite(str(config.SNAPSHOT_DIR / files["scene"]), annotated)
+        if annotated is not None:   # (no picture when that PC's camera has not sent one, e.g. ABSENT while offline)
+            files["scene"] = f"{iid}_scene.jpg"
+            cv2.imwrite(str(config.SNAPSHOT_DIR / files["scene"]), annotated)
         item = {"id": iid, **alert, "status": "open", "status_time": None, **files}
         with self.lock:
             self.items.append(item)

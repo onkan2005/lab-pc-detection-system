@@ -143,7 +143,7 @@ class Engine:
             if pc not in self.stations:   # each PC camera gets its own YOLO26 tracker
                 self.stations[pc] = {"thumb": None, "thumb_t": -1, "cam": new_camera(name=pc, sightings=self.sightings)}
             st = self.stations[pc]
-            result = analyze(frame, st["cam"], self.face_app, self.recognizer)
+            result = analyze(frame, st["cam"], self.face_app, self.recognizer, now=t)   # one clock for all cameras
             ms = round((time.monotonic() - started) * 1000)
 
             names = {p["name"] for p in result["people"] if p["name"] != UNIDENTIFIED
@@ -156,8 +156,16 @@ class Engine:
             new_alerts = self.tracker.take_new_alerts()
             # Privacy: everything an admin sees or that is stored gets the faces pixelated first.
             shown = blur_faces(frame.copy(), people) if config.PRIVACY_BLUR else frame
+            st["evidence"] = (shown, people, result["covered"])   # this PC's latest (blurred) picture
             for alert in new_alerts:   # evidence: fully labeled frame (blurred before it is ever saved)
-                self.incidents.add(alert, shown, draw(shown.copy(), pc, people, result["covered"]), people)
+                # The rules check every PC on each frame, so an alert can be about ANOTHER PC than the camera
+                # whose frame is being processed: use that PC's own latest picture as the evidence.
+                ev = st["evidence"] if alert["pc"] == pc else self.stations.get(alert["pc"], {}).get("evidence")
+                if ev is None:
+                    self.incidents.add(alert, None, None, [])
+                    continue
+                img, ppl, cov = ev
+                self.incidents.add(alert, img, draw(img.copy(), alert["pc"], ppl, cov), ppl)
             if t - st["thumb_t"] >= 1.0:   # camera wall: clean image, the page draws the labels on top
                 clean = draw_boxes(shown.copy(), people)
                 small = cv2.resize(clean, (480, round(clean.shape[0] * 480 / clean.shape[1])))
@@ -182,7 +190,7 @@ class Engine:
                 self.cctv[cam] = {"thumb": None, "thumb_t": -1,
                                   "cam": new_camera(CCTV_PROFILE, name=f"CCTV {cam}", sightings=self.sightings)}
             st = self.cctv[cam]
-            result = analyze(frame, st["cam"], self.face_app, self.recognizer)
+            result = analyze(frame, st["cam"], self.face_app, self.recognizer, now=t)   # one clock for all cameras
             ms = round((time.monotonic() - started) * 1000)
             self.room.update(t, cam, result["people"], result["covered"])
             people = self.room.describe(cam, result["people"], t)
