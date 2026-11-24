@@ -818,6 +818,14 @@ class Station {
         await createPc(name);
         this.fillPcs(name);
       }
+      const other = stations.find(o => o !== this && o.q(".pc").value === sel.value);
+      if (other) {   // each camera is one PC: don't allow two cameras on the same PC
+        const back = store.get(`pc${this.i}`);
+        this.fillPcs(back && back !== sel.value ? back : undefined);
+        this.q(".perf").textContent = `${other.q(".pc").value} already belongs to Camera ${other.i + 1}. Each camera needs its own PC.`;
+        autoAssignPcs();
+        return;
+      }
       store.set(`pc${this.i}`, sel.value);
       this.renderAssigned(); renderCamJump();
     };
@@ -1067,7 +1075,27 @@ class Station {
   }
 }
 
-function fillPcSelect() { stations.forEach(s => s.fillPcs()); }
+function fillPcSelect() { stations.forEach(s => s.fillPcs()); autoAssignPcs(); }
+
+/* Every camera panel gets its own PC automatically: a panel that would share a PC with an earlier one
+   takes the next PC no camera uses, and a new PC-0N is created when all are taken. */
+let autoPcBusy = false;
+async function autoAssignPcs() {
+  if (!state || autoPcBusy) return;
+  autoPcBusy = true;
+  try {
+    const used = new Set();
+    for (const s of stations) {
+      let pc = s.q(".pc").value;
+      if (!pc || pc === "__new__" || used.has(pc)) {
+        pc = pcOptions().find(p => !used.has(p) && !stations.some(o => o !== s && o.q(".pc").value === p));
+        if (!pc) { pc = nextPcName(); await createPc(pc); }
+        s.fillPcs(pc); store.set(`pc${s.i}`, pc);
+      }
+      used.add(pc);
+    }
+  } finally { autoPcBusy = false; renderCamJump(); }
+}
 
 /* Toolbar: cameras per row, minimize/expand all, and a strip of chips to jump to any camera */
 const CAM_COLS = [["auto", "Auto"], ["1", "1"], ["2", "2"], ["3", "3"], ["4", "4"]];
