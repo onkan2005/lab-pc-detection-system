@@ -190,7 +190,7 @@ while the app is stopped (or restart it afterwards: `docker compose restart`).
 |---|---|
 | **Overview** | Camera wall (one tile per PC, filter by *Needs attention / Online / Offline*) and the incident **Feed**. Click **Send technician**, then **Resolved** or **False alarm**. |
 | **Cameras** | Choose *This camera is PC-0X* and the camera device, **Start camera**. **Add camera** for a second camera on the same computer. Under the video: who is there, the verdict, image brightness/contrast. |
-| **CCTV** | A room camera: everyone in view, who is in the room and for how long, room log, the head-pose/distance test results. |
+| **CCTV** | Room cameras (**Add camera** for more): everyone in view, who is in the room and for how long, room log, the head-pose/distance test results. |
 | **Students** | Enrolled students, **Watchlist** checkbox (banned from all PCs), enrollment, **Check a photo**, **Check a video** (see below). |
 | **PCs** | Every PC, camera status, who is using it now, assigned students (**Edit** opens a searchable list; a PC can have several students), add/remove PCs. |
 | **Usage log** | Every visit of every person to every PC camera (see below): tabs, filters, totals, **Export CSV**. |
@@ -242,6 +242,10 @@ frames are sent to the server for detection.
 Besides one camera per PC, the **CCTV** page takes a camera that watches the **whole room** (for example
 the phone with Iriun on a high shelf). Everyone in view is detected by YOLO26 and recognized; there is no
 "PC user" here, it answers *who is in the room*.
+
+**Add camera** adds more room cameras (ROOM-1, ROOM-2, …, each with its own name, webcam, minimize/maximize
+and remove), for example one in each corner. They share the room list and the room log; a student seen by any
+of them is "in the room".
 
 - Frames are sent at 1280 px wide and YOLO26 runs at 960 px, so small, far-away people and faces are found
   (slower than a PC camera: about 0.2 s per frame on a laptop CPU).

@@ -403,32 +403,17 @@
     <!-- CCTV: one room camera, many people, far away -->
     <section class="page" id="page-cctv" aria-labelledby="h-cctv">
       <div class="page-head">
-        <div><h1 id="h-cctv">CCTV room camera</h1>
-          <p>A camera high in a corner that watches the whole lab. Everyone in view is found by YOLO26 and named from their face;
+        <div><h1 id="h-cctv">CCTV room cameras</h1>
+          <p>Cameras high in a corner that watch the whole lab. Everyone in view is found by YOLO26 and named from their face;
             a person who turns away keeps their name by their clothes and body (re-identification).</p></div>
+        <div class="actions"><button class="btn primary" id="add-cctv"><svg class="icon"><use href="#i-plus"/></svg>Add camera</button></div>
       </div>
       <div class="legend" style="margin-bottom:14px">
         <span><span class="swatch" style="background:#1f9d55"></span>Enrolled student</span>
         <span><span class="swatch" style="background:#f08c00"></span>Unknown / face not visible, timer running</span>
         <span><span class="swatch" style="background:#e03131"></span>Alert (watchlist or unknown too long)</span>
       </div>
-      <div class="card station" id="cctv-station">
-        <div class="controls">
-          <label class="field">Camera name <input type="text" class="camname" value="ROOM-1" maxlength="20" size="10"></label>
-          <label class="field">Camera device <select class="cam"><option value="">Default camera</option></select></label>
-          <button class="btn primary go">Start CCTV</button>
-        </div>
-        <div class="station-body">
-          <div class="stage"><video playsinline muted></video><canvas></canvas>
-            <div class="idle">Point a camera at the room (e.g. the phone with Iriun on a high shelf), choose it, then click Start CCTV.</div></div>
-          <div class="info">
-            <div class="muted" style="font-weight:600">People in view</div>
-            <div class="inview"><div class="empty">Camera not started.</div></div>
-            <div class="muted imgq" style="margin-top:10px"></div>
-            <div class="muted perf" style="margin-top:6px"></div>
-          </div>
-        </div>
-      </div>
+      <div class="stations" data-cols="auto" id="cctv-list"></div>
       <div class="grid" style="margin-top:16px">
         <div class="card"><h2>In the room <span class="muted" id="room-sub"></span></h2><div class="table-wrap" id="room-now"></div></div>
         <div class="card"><h2>Room log <span class="muted">(visits that ended)</span></h2><div class="table-wrap" id="room-log"></div></div>
@@ -701,7 +686,7 @@ async function listCams() {
   if (!navigator.mediaDevices) return;
   cameras = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput");
   stations.forEach(s => s.fillCams());
-  if (typeof cctv !== "undefined") cctv.fillCams();
+  if (typeof cctvs !== "undefined") cctvs.forEach(c => c.fillCams());
 }
 
 function pcOptions() {
@@ -927,6 +912,8 @@ class Station {
     const id = this.q(".cam").value;
     const clash = stations.find(s => s !== this && s.on && s.q(".cam").value === id);
     if (clash) { idle.textContent = `That camera is already used by Camera ${stations.indexOf(clash) + 1}. Pick a different one.`; return; }
+    const cclash = cctvs.find(c => c.on && c.q(".cam").value === id);
+    if (cclash) { idle.textContent = `That camera is used by the CCTV camera ${cclash.name}. Pick a different one.`; return; }
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({video: {deviceId: id ? {exact: id} : undefined,
         width: {ideal: 1280}, height: {ideal: 720}, frameRate: {ideal: 30}}});
@@ -954,7 +941,7 @@ class Station {
     this.stream = null; this.last = null;
     this.q(".go").textContent = "Start camera";
     const idle = this.q(".idle"); idle.style.display = "flex"; idle.textContent = "Camera stopped.";
-    if (this.setState) {
+    if (this instanceof Station) {
       this.setState("off", "Off", "Camera off"); this.cfg.run = false; saveStations();
       const pc = this.q(".pc").value;   // the dashboard shows this PC offline right away
       if (pc && pc !== "__new__") fetch(`/api/pcs/${encodeURIComponent(pc)}/stopped`, {method: "POST"}).catch(() => {});
@@ -1220,20 +1207,75 @@ if (navigator.mediaDevices) navigator.mediaDevices.addEventListener("devicechang
 /* ================= CCTV: one room camera, everyone in view ================= */
 /* Reuses the Station overlay painter; sends bigger frames (1280 wide) so far-away faces are still found. */
 class Cctv {
-  constructor(el) {
-    this.el = el; this.q = s => el.querySelector(s); this.i = "cctv";
+  constructor(id, cfg = {}) {
+    this.i = "cctv" + id;
+    this.cfg = {name: cfg.name || nextCctvName(), cam: cfg.cam || "", min: !!cfg.min, run: !!cfg.run};
     this.on = false; this.last = null; this.stream = null; this.sentW = 0; this.sentH = 0;
     this.grab = document.createElement("canvas");
+    const el = document.createElement("div");
+    el.className = "card station";
+    el.innerHTML = `
+      <div class="head"><h2><svg class="icon"><use href="#i-cctv"/></svg><span class="camno">CCTV</span> <span class="pcname"></span></h2>
+        <span class="mini">Camera off</span>
+        <div class="tools"><span class="badge b-off state">Off</span>
+          <button class="btn ghost icon-btn minb" title="Minimize" aria-label="Minimize"><svg class="icon"><use href="#i-min"/></svg></button>
+          <button class="btn ghost icon-btn maxb" title="Maximize" aria-label="Maximize"><svg class="icon"><use href="#i-max"/></svg></button>
+          <button class="btn ghost icon-btn rm" title="Remove this camera" aria-label="Remove this camera"><svg class="icon"><use href="#i-x"/></svg></button></div></div>
+      <div class="controls">
+        <label class="field">Camera name <input type="text" class="camname" maxlength="20" size="10"></label>
+        <label class="field">Camera device <select class="cam"><option value="">Default camera</option></select></label>
+        <button class="btn primary go">Start CCTV</button>
+      </div>
+      <div class="station-body">
+        <div class="stage"><video playsinline muted></video><canvas></canvas>
+          <div class="idle">Point a camera at the room (e.g. a phone with Iriun on a high shelf), choose it, then click Start CCTV.</div></div>
+        <div class="info">
+          <div class="muted" style="font-weight:600">People in view</div>
+          <div class="inview"><div class="empty">Camera not started.</div></div>
+          <div class="muted imgq" style="margin-top:10px"></div>
+          <div class="muted perf" style="margin-top:6px"></div>
+        </div>
+      </div>`;
+    this.el = el; this.q = s => el.querySelector(s);
     this.video = this.q("video"); this.overlay = this.q("canvas");
-    const name = store.get("cctv-name"); if (name) this.q(".camname").value = name;
-    this.q(".camname").onchange = () => store.set("cctv-name", this.q(".camname").value.trim().toUpperCase());
-    this.q(".cam").onchange = () => store.set("cctv-cam", this.q(".cam").value);
+    this.q(".camname").value = this.cfg.name;
+    this.q(".camname").onchange = () => {   // names must be unique: another CCTV with this name -> keep the old one
+      const name = this.name, other = cctvs.find(c => c !== this && c.name === name);
+      if (!/^[A-Z0-9_-]{1,20}$/.test(name) || other) {
+        this.q(".perf").textContent = other ? `${name} is already the name of another CCTV camera.` : "Camera name: letters, numbers, - and _ only.";
+        this.q(".camname").value = this.cfg.name; return;
+      }
+      if (this.on) fetch(`/api/cctv/${encodeURIComponent(this.cfg.name)}/stopped`, {method: "POST"}).catch(() => {});
+      this.q(".camname").value = name; this.cfg.name = name; saveCctvs(); renderCctvHeads();
+    };
+    this.q(".cam").onchange = () => { this.cfg.cam = this.q(".cam").value; saveCctvs(); };
     this.q(".go").onclick = () => this.on ? this.stop() : this.start();
+    this.q(".minb").onclick = () => { this.el.classList.toggle("min"); this.el.classList.remove("max"); this.cfg.min = this.el.classList.contains("min"); saveCctvs(); renderCctvHeads(); };
+    this.q(".maxb").onclick = () => {
+      const on = !this.el.classList.contains("max");
+      cctvs.forEach(c => c.el.classList.remove("max"));
+      this.el.classList.toggle("max", on); this.el.classList.remove("min"); this.cfg.min = false; saveCctvs(); renderCctvHeads();
+    };
+    this.q(".rm").onclick = () => {
+      if (cctvs.length < 2) return;
+      if (this.on) this.stop(); else fetch(`/api/cctv/${encodeURIComponent(this.cfg.name)}/stopped`, {method: "POST"}).catch(() => {});
+      el.remove(); cctvs.splice(cctvs.indexOf(this), 1); saveCctvs(); renderCctvHeads();
+    };
+    this.q(".stage").ondblclick = () => document.fullscreenElement ? document.exitFullscreen()
+      : this.q(".stage").requestFullscreen && this.q(".stage").requestFullscreen();
+    el.classList.toggle("min", this.cfg.min);
+    $("#cctv-list").appendChild(el);
+    this.fillCams();
   }
   get name() { return this.q(".camname").value.trim().toUpperCase(); }
+  setState(kind, text, summary) {
+    const b = this.q(".state");
+    b.className = `badge state ${kind === "alert" ? "b-bad" : kind === "warn" ? "b-warn" : kind === "live" ? "b-ok" : "b-off"}`;
+    b.textContent = text; this.q(".mini").textContent = summary;
+  }
   fillCams() {
     if (!cameras.length) return;
-    const sel = this.q(".cam"), want = sel.value || store.get("cctv-cam");
+    const sel = this.q(".cam"), want = sel.value || this.cfg.cam;
     sel.innerHTML = cameras.map((c, k) => `<option value="${esc(c.deviceId)}">${esc(c.label || "Camera " + (k + 1))}</option>`).join("");
     if (want && cameras.some(c => c.deviceId === want)) sel.value = want;
   }
@@ -1246,6 +1288,8 @@ class Cctv {
     const id = this.q(".cam").value;
     const clash = stations.find(s => s.on && s.q(".cam").value === id);
     if (clash) { idle.textContent = `That camera is used by PC camera ${stations.indexOf(clash) + 1}. Stop it there or pick another.`; return; }
+    const cclash = cctvs.find(c => c !== this && c.on && c.q(".cam").value === id);
+    if (cclash) { idle.textContent = `That camera is used by the CCTV camera ${cclash.name}. Pick another.`; return; }
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({video: {deviceId: id ? {exact: id} : undefined,
         width: {ideal: 1920}, height: {ideal: 1080}}});
@@ -1255,11 +1299,17 @@ class Cctv {
     idle.style.display = "none";
     this.on = true; this.last = null;
     this.q(".go").textContent = "Stop CCTV";
-    store.set("cctv-name", this.name); store.set("cctv-run", "1");
+    const dev = this.stream.getVideoTracks()[0].getSettings().deviceId;
+    if (dev) { this.q(".cam").value = dev; this.cfg.cam = dev; }
+    this.cfg.run = true; saveCctvs(); this.setState("live", "Live", "Starting…");
     this.detectLoop();
     requestAnimationFrame(() => this.paint());
   }
-  stop() { Station.prototype.stop.call(this); this.q(".go").textContent = "Start CCTV"; store.set("cctv-run", "0"); }
+  stop() {
+    Station.prototype.stop.call(this); this.q(".go").textContent = "Start CCTV";
+    this.cfg.run = false; saveCctvs(); this.setState("off", "Off", "Camera off");
+    fetch(`/api/cctv/${encodeURIComponent(this.cfg.name)}/stopped`, {method: "POST"}).catch(() => {});   // offline right away
+  }
   paint() { Station.prototype.paint.call(this); }
   async detectLoop() {
     let n = 0, since = performance.now();
@@ -1295,6 +1345,9 @@ class Cctv {
       this.q(".imgq").innerHTML = `Image: brightness <b>${b.brightness}</b>, contrast <b>${b.contrast}</b>` +
         (d.prep.steps.length ? `<br>${esc(d.prep.steps.join("; "))}` : "");
     }
+    const known = d.people.filter(p => p.kind === "ok").length, alerts = d.people.filter(p => p.kind === "alert").length;
+    this.setState(d.covered || alerts ? "alert" : d.people.length > known ? "warn" : "live", d.covered ? "Blocked" : alerts ? "Alert" : "Live",
+      d.covered ? "Camera blocked" : `${d.people.length} in view · ${known} known` + (alerts ? ` · ${alerts} alert${alerts > 1 ? "s" : ""}` : ""));
     const box = this.q(".inview");
     if (d.covered) { box.innerHTML = `<div class="empty" style="color:var(--bad)">Camera blocked (${esc(d.covered_reason)})</div>`; return; }
     if (!d.people.length) { box.innerHTML = `<div class="empty">Nobody in view.</div>`; return; }
@@ -1306,7 +1359,42 @@ class Cctv {
       </div>`).join("");
   }
 }
-const cctv = new Cctv($("#cctv-station"));
+/* Several CCTV cameras, saved in this browser in panel order (name, webcam, minimized, running) */
+const cctvs = [];
+let nextCctvId = 0;
+function nextCctvName() {
+  const used = new Set(cctvs.map(c => c.cfg.name));
+  for (let n = 1; ; n++) if (!used.has("ROOM-" + n)) return "ROOM-" + n;
+}
+function saveCctvs() { store.set("cctvs", JSON.stringify(cctvs.map(c => c.cfg))); }
+function loadCctvs() {
+  try { const a = JSON.parse(store.get("cctvs") || "null"); if (Array.isArray(a) && a.length) return a.slice(0, 16); } catch (e) {}
+  return [{name: store.get("cctv-name") || "ROOM-1", cam: store.get("cctv-cam") || "", run: store.get("cctv-run") === "1"}];   // older single CCTV
+}
+function addCctv(cfg, loading) {
+  const c = new Cctv(nextCctvId++, cfg);
+  cctvs.push(c);
+  if (!loading) saveCctvs();
+  renderCctvHeads();
+  return c;
+}
+function renderCctvHeads() {
+  cctvs.forEach((c, k) => {
+    c.q(".camno").textContent = `CCTV ${k + 1}`; c.q(".pcname").textContent = c.cfg.name;
+    c.q(".rm").disabled = cctvs.length < 2;
+    c.q(".rm").title = cctvs.length < 2 ? "The last camera can't be removed" : "Remove this camera";
+    const min = c.el.classList.contains("min"), max = c.el.classList.contains("max");
+    c.q(".minb").innerHTML = `<svg class="icon"><use href="#i-${min ? "expand" : "min"}"/></svg>`; c.q(".minb").title = min ? "Expand" : "Minimize";
+    c.q(".maxb").innerHTML = `<svg class="icon"><use href="#i-${max ? "restore" : "max"}"/></svg>`; c.q(".maxb").title = max ? "Back to normal size" : "Maximize";
+  });
+}
+$("#add-cctv").onclick = () => addCctv({});
+loadCctvs().forEach(cfg => addCctv(cfg, true));
+window.addEventListener("storage", e => {   // the CCTV page open in two tabs stays in sync
+  if (e.key !== "cctvs" || cctvs.some(c => c.on)) return;
+  cctvs.splice(0).forEach(c => c.el.remove());
+  loadCctvs().forEach(cfg => addCctv(cfg, true));
+});
 
 async function pollCctv() {
   try {
@@ -1510,7 +1598,7 @@ function checkReset(s) {
   const seen = store.get("reset_id");
   if (seen === null || seen === s.reset_id) { store.set("reset_id", s.reset_id); return false; }
   try {
-    Object.keys(localStorage).filter(k => /^(pc|cam|min|run)\d+$/.test(k) || ["stations", "cameras", "cctv-name", "cctv-cam", "cctv-run", "pcFilter", "camCols"].includes(k))
+    Object.keys(localStorage).filter(k => /^(pc|cam|min|run)\d+$/.test(k) || ["stations", "cameras", "cctvs", "cctv-name", "cctv-cam", "cctv-run", "pcFilter", "camCols"].includes(k))
       .forEach(k => localStorage.removeItem(k));
   } catch (e) {}
   store.set("reset_id", s.reset_id);
@@ -1589,7 +1677,7 @@ showPage();
 poll();
 listCams().then(() => {   // cameras that were running before a reload start again (camera permission is remembered)
   stations.forEach(st => st.cfg.run && !st.on && st.start());
-  if (store.get("cctv-run") === "1" && !cctv.on) cctv.start();
+  cctvs.forEach(c => c.cfg.run && !c.on && c.start());
 });
 
 /* ================= PHOTO TEST ================= */

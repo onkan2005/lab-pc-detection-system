@@ -427,6 +427,16 @@ def cctv_test():
                     "wrong_total": sum(r["outcome"] == "wrong person" for r in rows)})
 
 
+@app.route("/api/cctv/<cam>/stopped", methods=["POST"])
+def cctv_stopped(cam):
+    """A CCTV camera was stopped, renamed or removed: drop it from the CCTV overview right away."""
+    with engine.lock:
+        engine.cctv.pop(cam, None)
+        engine.room.last_frame.pop(cam, None)
+        engine.room.covered_since.pop(cam, None)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/cctv/<cam>/thumb")
 def cctv_thumb(cam):
     st = engine.cctv.get(cam)
